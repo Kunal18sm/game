@@ -512,6 +512,12 @@
     const PLAYER_BOOST_BASE_FRAMES = 180; // 3 seconds at 60fps
     const PLAYER_BOOST_STACK_ADD_FRAMES = 60; // +1 second per extra boost while active
     const CHASER_BOOST_FRAMES = 240; // 4 seconds at 60fps
+    const STAR_LOW_MIN_HEIGHT_ABOVE_GROUND = 30;
+    const STAR_LOW_MAX_HEIGHT_ABOVE_GROUND = 78;
+    const STAR_HIGH_MIN_HEIGHT_ABOVE_GROUND = 95;
+    const STAR_HIGH_MAX_HEIGHT_ABOVE_GROUND = 130;
+    const STAR_HIGH_CHANCE = 0.35; // Some boosts require a jump to collect.
+    const STAR_PLAYER_PICKUP_EXTRA_RADIUS = 8;
 
     // --- TERRAIN LOGIC ---
     function getSurfaceY(x) {
@@ -567,7 +573,7 @@
             y: groundY,
             vy: 0,
             grounded: true,
-            baseSpeed: 5, // Animal speed is now exactly equal to player
+            baseSpeed: 5.28, // Animal speed is now exactly equal to player
             speed: 5,
             width: 150,
             height: 100,
@@ -630,9 +636,19 @@
 
             if (rand < 0.55) {
                 // Spawn Power Point (Star)
+                const isHighStar = Math.random() < STAR_HIGH_CHANCE;
+                const minStarHeightAboveGround = isHighStar
+                    ? STAR_HIGH_MIN_HEIGHT_ABOVE_GROUND
+                    : STAR_LOW_MIN_HEIGHT_ABOVE_GROUND;
+                const maxStarHeightAboveGround = isHighStar
+                    ? STAR_HIGH_MAX_HEIGHT_ABOVE_GROUND
+                    : STAR_LOW_MAX_HEIGHT_ABOVE_GROUND;
+                const starHeightAboveGround =
+                    minStarHeightAboveGround +
+                    Math.random() * (maxStarHeightAboveGround - minStarHeightAboveGround);
                 environment.stars.push({
                     x: currentX,
-                    y: surfaceY - 50 - Math.random() * 100,
+                    y: surfaceY - starHeightAboveGround,
                     size: 15,
                     collected: false
                 });
@@ -771,9 +787,16 @@
 
         for (let i = environment.stars.length - 1; i >= 0; i--) {
             let star = environment.stars[i];
-            let sRect = { x: star.x - star.size, y: star.y - star.size, w: star.size*2, h: star.size*2 };
+            let starRect = { x: star.x - star.size, y: star.y - star.size, w: star.size * 2, h: star.size * 2 };
+            let playerPickupRadius = star.size + STAR_PLAYER_PICKUP_EXTRA_RADIUS;
+            let playerPickupRect = {
+                x: star.x - playerPickupRadius,
+                y: star.y - playerPickupRadius,
+                w: playerPickupRadius * 2,
+                h: playerPickupRadius * 2
+            };
             
-            if (AABB(cRect, sRect) || chaser.x > star.x + 100) {
+            if (AABB(cRect, starRect) || chaser.x > star.x + 100) {
                 environment.stars.splice(i, 1);
                 
                 chaser.boostTimer = CHASER_BOOST_FRAMES; // 4 SECONDS 2x BOOST for missing power point
@@ -783,7 +806,7 @@
                 continue;
             }
 
-            if (AABB(pRect, sRect)) {
+            if (AABB(pRect, playerPickupRect)) {
                 score += 100;
                 if (player.boostTimer > 0) {
                     player.boostTimer += PLAYER_BOOST_STACK_ADD_FRAMES;
