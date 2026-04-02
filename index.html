@@ -12,7 +12,7 @@
             padding: 0;
             width: 100%;
             height: 100%;
-            background-color: #111;
+            background-color: #000; /* Grey gap fix ke liye background pure black kiya */
             overflow: hidden;
             font-family: 'Roboto', sans-serif;
             touch-action: none; /* Prevent pull-to-refresh on mobile */
@@ -352,7 +352,7 @@
             A terrifying shadow beast is hunting you. Tap anywhere to enter FULLSCREEN and RUN!
         </div>
         <div class="mechanic-desc">
-            <p><span class="highlight-yellow">⚡ Speed Bolts:</span> Collect to boost speed for 1s. Miss them, and the beast gets a 2x SPEED BOOST for 2s!</p>
+            <p><span class="highlight-yellow">⚡ Speed Bolts:</span> Collect for 2s boost. Miss them, beast gets 3s boost! Beast also auto-boosts every 25s.</p>
             <p><span class="highlight-red">▲ Obstacles (Bushes/Snakes):</span> Touching them slows you down drastically.</p>
             <p><span style="color:#8b4513; font-weight:bold;">● Mud (Starts at 5k):</span> Slows you down heavily for 3 SECONDS!</p>
             <p><span class="highlight-blue">♒ Waterfall:</span> The goal is 50,000 meters away.</p>
@@ -417,7 +417,7 @@
     const winScreen = document.getElementById('winScreen');
     const deathReason = document.getElementById('deathReason');
 
-    // --- GAME STATE VARIABLES (Moved up to prevent TDZ initialization errors) ---
+    // --- GAME STATE VARIABLES ---
     let cw, ch;
     let groundY;
     const GROUND_HEIGHT = 100; 
@@ -440,12 +440,12 @@
         let actualWidth = window.innerWidth;
         let actualHeight = window.innerHeight;
 
-        // Mobile par game ko zoom-out karne ke liye logical internal resolution badhai gayi hai
+        // Mobile par game ko zoom-out karne ke liye proportional resolution maintain kiya gaya hai
         if (actualWidth < 900) {
-            let targetWidth = 1100; // Screen ko 'chota' dikhane ke liye game width fix
-            let scaleFactor = targetWidth / actualWidth;
+            let targetWidth = 1200; // Fixed higher internal width for zoom-out effect
+            let aspect = actualHeight / actualWidth;
             cw = targetWidth;
-            ch = actualHeight * scaleFactor;
+            ch = targetWidth * aspect; // Exact aspect ratio to prevent gray gap at bottom
         } else {
             cw = actualWidth;
             ch = actualHeight;
@@ -457,9 +457,10 @@
         // Update ground based on new scaled height
         groundY = ch - GROUND_HEIGHT;
         if (player && player.y > groundY - 100) {
-            // Adjust player/chaser positions if falling through map on resize
             player.y = Math.min(player.y, groundY);
-            if (chaser) chaser.y = Math.min(chaser.y, groundY);
+        }
+        if (chaser && chaser.y > groundY - 100) {
+            chaser.y = Math.min(chaser.y, groundY);
         }
     }
     window.addEventListener('resize', resize);
@@ -514,7 +515,7 @@
             currentSwingingPit: null,
             pitEscapeTaps: 0,
             mudSlowTimer: 0,
-            boostTimer: 0, // Player temporary boost timer
+            boostTimer: 0, 
             hasAutoJumped: false
         };
 
@@ -523,13 +524,14 @@
             y: groundY,
             vy: 0,
             grounded: true,
-            baseSpeed: 4.6, 
-            speed: 4.6,
+            baseSpeed: 5, // Animal speed is now exactly equal to player
+            speed: 5,
             width: 150,
             height: 100,
-            targetSpeed: 4.6,
+            targetSpeed: 5, // Target speed matches player
             glowTimer: 0,
-            boostTimer: 0 
+            boostTimer: 0,
+            autoBoostTimer: 1500 // 25 seconds at 60fps
         };
 
         // Background Dragon Initialization (Shadow Style)
@@ -731,9 +733,8 @@
             if (AABB(cRect, sRect) || chaser.x > star.x + 100) {
                 environment.stars.splice(i, 1);
                 
-                chaser.baseSpeed = Math.min(chaser.baseSpeed + 0.05, 11); 
-                chaser.boostTimer = 120; // 2 SECONDS 2x BOOST
-                chaser.glowTimer = 120; 
+                chaser.boostTimer = 180; // 3 SECONDS 2x BOOST for missing power point
+                chaser.glowTimer = 180; 
                 
                 createFloatingText("Beast 2x Speed!", Math.max(50, player.x), ch/2, "#ff4444");
                 continue;
@@ -741,8 +742,8 @@
 
             if (AABB(pRect, sRect)) {
                 score += 100;
-                player.boostTimer = 60; // 1 SECOND 1.5x BOOST (60 frames)
-                player.glowTimer = 60; 
+                player.boostTimer = 120; // 2 SECOND 1.5x BOOST (120 frames)
+                player.glowTimer = 120; 
                 environment.stars.splice(i, 1);
                 updateHUD();
                 createFloatingText("+Speed!", star.x, star.y, "gold");
@@ -806,11 +807,21 @@
 
         if(gameState !== 'playing') return;
 
+        // Auto Boost for Beast every 25 seconds
+        if (chaser.autoBoostTimer > 0) {
+            chaser.autoBoostTimer--;
+        } else {
+            chaser.boostTimer = 180; // 3 seconds boost
+            chaser.glowTimer = 180;
+            chaser.autoBoostTimer = 1500; // Reset to 25 seconds
+            createFloatingText("Auto Boost!", Math.max(50, player.x), ch/2, "#ff4444");
+        }
+
         if (!tutorials.coinSeen && environment.stars.length > 0) {
             let firstStar = environment.stars[0];
             if (firstStar.x - cameraX > 50 && firstStar.x - cameraX < cw * 0.6) {
                 tutorials.coinSeen = true;
-                showTutorial("Speed Bolt!", "Collect lightning bolts to increase your speed.\nBut beware, if you miss it, the beast will eat it and get 2X FASTER for 2s!", firstStar.x, firstStar.y, 'coin');
+                showTutorial("Speed Bolt!", "Collect lightning bolts to increase your speed.\nBut beware, if you miss it, the beast will eat it and get 2X FASTER for 3s!", firstStar.x, firstStar.y, 'coin');
                 return;
             }
         }
@@ -939,7 +950,7 @@
             player.speed = player.baseSpeed * 0.5; 
         } else if (player.boostTimer > 0) {
             player.boostTimer--;
-            player.speed = player.baseSpeed * 1.5; // 1.5x Speed for 1 second
+            player.speed = player.baseSpeed * 1.5; // 1.5x Speed for 2 seconds
         } else {
             player.speed = player.baseSpeed;
         }
@@ -950,7 +961,7 @@
 
         if (chaser.boostTimer > 0) {
             chaser.boostTimer--;
-            chaser.targetSpeed = chaser.baseSpeed * 2; 
+            chaser.targetSpeed = chaser.baseSpeed * 2; // Beast 2x speed
         } else {
             chaser.targetSpeed = chaser.baseSpeed; 
         }
