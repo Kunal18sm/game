@@ -575,7 +575,7 @@
             y: groundY,
             vy: 0,
             grounded: true,
-            baseSpeed: 5.25, // Animal speed is now exactly equal to player
+            baseSpeed: 5.27, // Animal speed is now exactly equal to player
             speed: 5,
             width: 150,
             height: 100,
@@ -824,7 +824,7 @@
 
         for (let bush of environment.bushes) {
             let bY = getSurfaceY(bush.x + bush.width/2);
-            if (AABB(pRect, {x: bush.x, y: bY - bush.height, w: bush.width, h: bush.height})) {
+            if (player.boostTimer <= 0 && AABB(pRect, {x: bush.x, y: bY - bush.height, w: bush.width, h: bush.height})) {
                 if (player.slowTimer === 0) {
                     player.slowTimer = 90; 
                     createFloatingText("Slowed!", player.x, player.y - 20, "#aaa");
@@ -834,7 +834,7 @@
 
         for (let snake of environment.snakes) {
             let sY = getSurfaceY(snake.x + snake.width/2);
-            if (player.invulnTimer === 0 && AABB(pRect, {x: snake.x, y: sY - snake.height, w: snake.width, h: snake.height})) {
+            if (player.boostTimer <= 0 && player.invulnTimer === 0 && AABB(pRect, {x: snake.x, y: sY - snake.height, w: snake.width, h: snake.height})) {
                 player.invulnTimer = 60; 
                 player.slowTimer = 120; 
                 createFloatingText("Poison! Speed Down!", player.x, player.y - 40, "#4caf50");
