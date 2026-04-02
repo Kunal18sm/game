@@ -352,7 +352,7 @@
             A terrifying shadow beast is hunting you. Tap anywhere to enter FULLSCREEN and RUN!
         </div>
         <div class="mechanic-desc">
-            <p><span class="highlight-yellow">⚡ Speed Bolts:</span> Collect for 3s boost. Miss them, beast gets 3s boost! Beast also auto-boosts every 25s.</p>
+            <p><span class="highlight-yellow">⚡ Speed Bolts:</span> Collect for 3s boost. If already boosted, each new bolt adds +1s. Miss them, beast gets 4s boost! Beast also auto-boosts every 25s.</p>
             <p><span class="highlight-red">▲ Obstacles (Bushes/Snakes):</span> Touching them slows you down drastically.</p>
             <p><span style="color:#8b4513; font-weight:bold;">● Mud (Starts at 5k):</span> Slows you down heavily for 3 SECONDS!</p>
             <p><span class="highlight-blue">♒ Waterfall:</span> The goal is 50,000 meters away.</p>
@@ -431,8 +431,43 @@
     let animationFrameId;
     let lastTime = 0;
     
+    // Tutorial persistence
+    const TUTORIAL_STORAGE_KEY = 'missiongame_tutorial_state_v1';
+    function createDefaultTutorialState() {
+        return { coinSeen: false, obstacleSeen: false, pitSeen: false, mudSeen: false };
+    }
+    function loadTutorialState() {
+        const defaultState = createDefaultTutorialState();
+        try {
+            const raw = localStorage.getItem(TUTORIAL_STORAGE_KEY);
+            if (!raw) return defaultState;
+            const parsed = JSON.parse(raw);
+            return {
+                coinSeen: !!parsed.coinSeen,
+                obstacleSeen: !!parsed.obstacleSeen,
+                pitSeen: !!parsed.pitSeen,
+                mudSeen: !!parsed.mudSeen
+            };
+        } catch (err) {
+            return defaultState;
+        }
+    }
+    function saveTutorialState() {
+        try {
+            localStorage.setItem(TUTORIAL_STORAGE_KEY, JSON.stringify(tutorials));
+        } catch (err) {
+            // Ignore storage write errors and continue gameplay.
+        }
+    }
+    function markTutorialSeen(tutorialKey) {
+        if (!tutorials[tutorialKey]) {
+            tutorials[tutorialKey] = true;
+            saveTutorialState();
+        }
+    }
+
     // Tutorial Trackers
-    let tutorials = { coinSeen: false, obstacleSeen: false, pitSeen: false, mudSeen: false };
+    let tutorials = loadTutorialState();
     const keys = { left: false, right: false, up: false };
     let chaserWarningTimeoutId = null;
     let chaserWarningShownInRange = false;
@@ -471,6 +506,12 @@
     // Game Constants
     const LEVEL_LENGTH = 50000; 
     const GRAVITY = 0.45; 
+    const PLAYER_SPEED_UP_LERP = 0.12;
+    const PLAYER_SPEED_DOWN_LERP = 0.06;
+    const PLAYER_SWING_SPEED_BONUS = 1.5;
+    const PLAYER_BOOST_BASE_FRAMES = 180; // 3 seconds at 60fps
+    const PLAYER_BOOST_STACK_ADD_FRAMES = 60; // +1 second per extra boost while active
+    const CHASER_BOOST_FRAMES = 240; // 4 seconds at 60fps
 
     // --- TERRAIN LOGIC ---
     function getSurfaceY(x) {
@@ -548,7 +589,7 @@
 
         score = 0;
         cameraX = 0;
-        tutorials = { coinSeen: false, obstacleSeen: false, pitSeen: false, mudSeen: false };
+        tutorials = loadTutorialState();
         updateHUD();
         generateLevel();
     }
@@ -735,8 +776,8 @@
             if (AABB(cRect, sRect) || chaser.x > star.x + 100) {
                 environment.stars.splice(i, 1);
                 
-                chaser.boostTimer = 180; // 3 SECONDS 2x BOOST for missing power point
-                chaser.glowTimer = 180; 
+                chaser.boostTimer = CHASER_BOOST_FRAMES; // 4 SECONDS 2x BOOST for missing power point
+                chaser.glowTimer = CHASER_BOOST_FRAMES; 
                 
                 createFloatingText("Beast 2x Speed!", Math.max(50, player.x), ch/2, "#ff4444");
                 continue;
@@ -744,8 +785,12 @@
 
             if (AABB(pRect, sRect)) {
                 score += 100;
-                player.boostTimer = 180; // 3 SECOND 1.5x BOOST (180 frames)
-                player.glowTimer = 180; 
+                if (player.boostTimer > 0) {
+                    player.boostTimer += PLAYER_BOOST_STACK_ADD_FRAMES;
+                } else {
+                    player.boostTimer = PLAYER_BOOST_BASE_FRAMES;
+                }
+                player.glowTimer = Math.max(player.glowTimer, player.boostTimer);
                 environment.stars.splice(i, 1);
                 updateHUD();
                 createFloatingText("+Speed!", star.x, star.y, "gold");
@@ -775,7 +820,13 @@
 
     function update() {
         if(gameState === 'winning_scene') {
-            player.vx = player.baseSpeed;
+            const winTargetSpeed = player.baseSpeed;
+            const winSpeedLerp = winTargetSpeed < player.speed ? PLAYER_SPEED_DOWN_LERP : PLAYER_SPEED_UP_LERP;
+            player.speed += (winTargetSpeed - player.speed) * winSpeedLerp;
+            if (Math.abs(winTargetSpeed - player.speed) < 0.01) {
+                player.speed = winTargetSpeed;
+            }
+            player.vx = player.speed;
             player.legAngle += 0.25; 
             
             if (player.x > LEVEL_LENGTH + 50 && player.grounded && !player.hasAutoJumped) {
@@ -813,8 +864,8 @@
         if (chaser.autoBoostTimer > 0) {
             chaser.autoBoostTimer--;
         } else {
-            chaser.boostTimer = 180; // 3 seconds boost
-            chaser.glowTimer = 180;
+            chaser.boostTimer = CHASER_BOOST_FRAMES; // 4 seconds boost
+            chaser.glowTimer = CHASER_BOOST_FRAMES;
             chaser.autoBoostTimer = 1500; // Reset to 25 seconds
             createFloatingText("Auto Boost!", Math.max(50, player.x), ch/2, "#ff4444");
         }
@@ -822,8 +873,8 @@
         if (!tutorials.coinSeen && environment.stars.length > 0) {
             let firstStar = environment.stars[0];
             if (firstStar.x - cameraX > 50 && firstStar.x - cameraX < cw * 0.6) {
-                tutorials.coinSeen = true;
-                showTutorial("Speed Bolt!", "Collect lightning bolts to increase your speed.\nBut beware, if you miss it, the beast will eat it and get 2X FASTER for 3s!", firstStar.x, firstStar.y, 'coin');
+                markTutorialSeen('coinSeen');
+                showTutorial("Speed Bolt!", "Collect lightning bolts to increase your speed.\nBut beware, if you miss it, the beast will eat it and get 2X FASTER for 4s!", firstStar.x, firstStar.y, 'coin');
                 return;
             }
         }
@@ -833,7 +884,7 @@
             if (allObstacles.length > 0) {
                 let firstObs = allObstacles[0];
                 if (firstObs.x - cameraX > 50 && firstObs.x - cameraX < cw * 0.6) {
-                    tutorials.obstacleSeen = true;
+                    markTutorialSeen('obstacleSeen');
                     showTutorial("Danger!", "Thorny bushes and snakes!\nTouching them will drastically reduce your speed for a few seconds. Jump (Up Arrow) to dodge!", firstObs.x, getSurfaceY(firstObs.x) - 20, 'obstacle');
                     return;
                 }
@@ -843,7 +894,7 @@
         if (!tutorials.pitSeen && environment.pits.length > 0) {
             let firstPit = environment.pits[0];
             if (firstPit.x - cameraX > 50 && firstPit.x - cameraX < cw * 0.6) {
-                tutorials.pitSeen = true;
+                markTutorialSeen('pitSeen');
                 showTutorial("Massive Pit & Rope!", "Double jump when near the pit to grab the rope and swing across! Normal jumps WON'T work here! If you fall, TAP JUMP 5 TIMES to escape!", firstPit.x + firstPit.width/2, getSurfaceY(firstPit.x) - 100, 'obstacle');
                 return;
             }
@@ -852,7 +903,7 @@
         if (!tutorials.mudSeen && environment.mud.length > 0) {
             let firstMud = environment.mud[0];
             if (firstMud.x - cameraX > 50 && firstMud.x - cameraX < cw * 0.6) {
-                tutorials.mudSeen = true;
+                markTutorialSeen('mudSeen');
                 showTutorial("Rain & Mud!", "Heavy rain has started! If you step in the mud, your speed will drastically drop for 3 SECONDS. Jump over it!", firstMud.x + firstMud.width/2, getSurfaceY(firstMud.x) - 50, 'obstacle');
                 return;
             }
@@ -920,7 +971,7 @@
                 player.y = curveY + 20; 
             }
             
-            player.vx = player.baseSpeed + 1.5; 
+            player.vx = player.speed; 
             player.vy = 0;
             if (player.x > player.swingEndX) {
                 player.isSwinging = false;
@@ -944,17 +995,27 @@
 
         if (player.x < 0) player.x = 0;
 
+        let playerTargetSpeed = player.baseSpeed;
         if (player.mudSlowTimer > 0) {
             player.mudSlowTimer--;
-            player.speed = player.baseSpeed * 0.4; 
+            playerTargetSpeed = player.baseSpeed * 0.4;
         } else if (player.slowTimer > 0) {
             player.slowTimer--;
-            player.speed = player.baseSpeed * 0.5; 
+            playerTargetSpeed = player.baseSpeed * 0.5;
         } else if (player.boostTimer > 0) {
             player.boostTimer--;
-            player.speed = player.baseSpeed * 1.5; // 1.5x Speed for 3 seconds
-        } else {
-            player.speed = player.baseSpeed;
+            playerTargetSpeed = player.baseSpeed * 1.5; // 1.5x Speed while boost timer is active
+        }
+
+        if (player.isSwinging) {
+            playerTargetSpeed = Math.max(playerTargetSpeed, player.baseSpeed + PLAYER_SWING_SPEED_BONUS);
+        }
+
+        // Smooth speed transitions for every state change (boost/slow/mud/swing/normal).
+        const speedLerp = playerTargetSpeed < player.speed ? PLAYER_SPEED_DOWN_LERP : PLAYER_SPEED_UP_LERP;
+        player.speed += (playerTargetSpeed - player.speed) * speedLerp;
+        if (Math.abs(playerTargetSpeed - player.speed) < 0.01) {
+            player.speed = playerTargetSpeed;
         }
 
         if (player.invulnTimer > 0) player.invulnTimer--;
