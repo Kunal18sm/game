@@ -241,8 +241,8 @@
             pointer-events: none;
         }
         @keyframes pulse {
-            from { transform: translateY(-50%) scale(1); opacity: 0.5; }
-            to { transform: translateY(-50%) scale(1.2); opacity: 1; }
+            from { transform: translateY(-50%) scale(1); }
+            to { transform: translateY(-50%) scale(1.2); }
         }
 
         /* Floating texts */
@@ -434,6 +434,8 @@
     // Tutorial Trackers
     let tutorials = { coinSeen: false, obstacleSeen: false, pitSeen: false, mudSeen: false };
     const keys = { left: false, right: false, up: false };
+    let chaserWarningTimeoutId = null;
+    let chaserWarningShownInRange = false;
 
     // Setup Canvas Size & Mobile Zoom-Out Logic
     function resize() {
@@ -1024,11 +1026,28 @@
         }
 
         let distanceToChaser = player.x - chaser.x;
-        if (distanceToChaser < cw && distanceToChaser > 0) {
-            chaserWarning.style.opacity = 1 - (distanceToChaser / cw);
-            chaserWarning.innerText = "BEAST NEAR!";
+        let chaserIsNear = distanceToChaser < cw && distanceToChaser > 0;
+        if (chaserIsNear) {
+            if (!chaserWarningShownInRange) {
+                chaserWarningShownInRange = true;
+                chaserWarning.innerText = "BEAST NEAR!";
+                chaserWarning.style.opacity = 1;
+
+                if (chaserWarningTimeoutId) {
+                    clearTimeout(chaserWarningTimeoutId);
+                }
+                chaserWarningTimeoutId = setTimeout(() => {
+                    chaserWarning.style.opacity = 0;
+                    chaserWarningTimeoutId = null;
+                }, 3000);
+            }
         } else {
+            chaserWarningShownInRange = false;
             chaserWarning.style.opacity = 0;
+            if (chaserWarningTimeoutId) {
+                clearTimeout(chaserWarningTimeoutId);
+                chaserWarningTimeoutId = null;
+            }
         }
 
         if (chaser.x + chaser.width/2 > player.x) {
@@ -1721,6 +1740,12 @@
         gameOverScreen.classList.add('hidden');
         winScreen.classList.add('hidden');
         tutorialPopup.classList.add('hidden');
+        chaserWarning.style.opacity = 0;
+        chaserWarningShownInRange = false;
+        if (chaserWarningTimeoutId) {
+            clearTimeout(chaserWarningTimeoutId);
+            chaserWarningTimeoutId = null;
+        }
         
         initEntities();
         
