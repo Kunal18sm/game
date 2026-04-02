@@ -352,7 +352,7 @@
             A terrifying shadow beast is hunting you. Tap anywhere to enter FULLSCREEN and RUN!
         </div>
         <div class="mechanic-desc">
-            <p><span class="highlight-yellow">⚡ Speed Bolts:</span> Collect for 2s boost. Miss them, beast gets 3s boost! Beast also auto-boosts every 25s.</p>
+            <p><span class="highlight-yellow">⚡ Speed Bolts:</span> Collect for 3s boost. Miss them, beast gets 3s boost! Beast also auto-boosts every 25s.</p>
             <p><span class="highlight-red">▲ Obstacles (Bushes/Snakes):</span> Touching them slows you down drastically.</p>
             <p><span style="color:#8b4513; font-weight:bold;">● Mud (Starts at 5k):</span> Slows you down heavily for 3 SECONDS!</p>
             <p><span class="highlight-blue">♒ Waterfall:</span> The goal is 50,000 meters away.</p>
@@ -505,7 +505,7 @@
             vy: 0,
             baseSpeed: 5, 
             speed: 5,
-            jumpPower: -11, 
+            jumpPower: -10, 
             grounded: false,
             slowTimer: 0,
             invulnTimer: 0,
@@ -744,8 +744,8 @@
 
             if (AABB(pRect, sRect)) {
                 score += 100;
-                player.boostTimer = 120; // 2 SECOND 1.5x BOOST (120 frames)
-                player.glowTimer = 120; 
+                player.boostTimer = 180; // 3 SECOND 1.5x BOOST (180 frames)
+                player.glowTimer = 180; 
                 environment.stars.splice(i, 1);
                 updateHUD();
                 createFloatingText("+Speed!", star.x, star.y, "gold");
@@ -952,7 +952,7 @@
             player.speed = player.baseSpeed * 0.5; 
         } else if (player.boostTimer > 0) {
             player.boostTimer--;
-            player.speed = player.baseSpeed * 1.5; // 1.5x Speed for 2 seconds
+            player.speed = player.baseSpeed * 1.5; // 1.5x Speed for 3 seconds
         } else {
             player.speed = player.baseSpeed;
         }
