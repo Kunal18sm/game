@@ -506,8 +506,10 @@
     // Game Constants
     const LEVEL_LENGTH = 50000; 
     const GRAVITY = 0.45; 
-    const PLAYER_SPEED_UP_LERP = 0.12;
-    const PLAYER_SPEED_DOWN_LERP = 0.06;
+    const PLAYER_SPEED_UP_LERP = 0.045;
+    const PLAYER_SPEED_DOWN_LERP = 0.02;
+    const CHASER_SPEED_UP_LERP = 0.03;
+    const CHASER_SPEED_DOWN_LERP = 0.015;
     const PLAYER_SWING_SPEED_BONUS = 1.5;
     const PLAYER_BOOST_BASE_FRAMES = 180; // 3 seconds at 60fps
     const PLAYER_BOOST_STACK_ADD_FRAMES = 60; // +1 second per extra boost while active
@@ -573,7 +575,7 @@
             y: groundY,
             vy: 0,
             grounded: true,
-            baseSpeed: 5.28, // Animal speed is now exactly equal to player
+            baseSpeed: 5.25, // Animal speed is now exactly equal to player
             speed: 5,
             width: 150,
             height: 100,
@@ -835,7 +837,6 @@
             if (player.invulnTimer === 0 && AABB(pRect, {x: snake.x, y: sY - snake.height, w: snake.width, h: snake.height})) {
                 player.invulnTimer = 60; 
                 player.slowTimer = 120; 
-                player.vx = -5; 
                 createFloatingText("Poison! Speed Down!", player.x, player.y - 40, "#4caf50");
             }
         }
@@ -1056,7 +1057,11 @@
         if (targetCameraX > cameraX) cameraX = targetCameraX; 
         if (player.x < cameraX + 50) player.x = cameraX + 50;
 
-        chaser.speed += (chaser.targetSpeed - chaser.speed) * 0.05; 
+        const chaserSpeedLerp = chaser.targetSpeed < chaser.speed ? CHASER_SPEED_DOWN_LERP : CHASER_SPEED_UP_LERP;
+        chaser.speed += (chaser.targetSpeed - chaser.speed) * chaserSpeedLerp;
+        if (Math.abs(chaser.targetSpeed - chaser.speed) < 0.01) {
+            chaser.speed = chaser.targetSpeed;
+        }
         chaser.x += chaser.speed;
 
         // --- DRAGON BACKGROUND AI (Screen Relative Spawning & Ping-Pong) ---
@@ -1416,22 +1421,25 @@
 
         let goalScreenX = LEVEL_LENGTH - cameraX;
         if (goalScreenX < cw) {
+            // Waterfall starts from the terrain edge (ground level), not from top of screen.
+            let waterfallStartY = getSurfaceY(LEVEL_LENGTH);
             let gradWater = ctx.createLinearGradient(goalScreenX, 0, goalScreenX + 300, 0);
             gradWater.addColorStop(0, "#4a90e2");
             gradWater.addColorStop(0.5, "#88ccff");
             gradWater.addColorStop(1, "#1c5b96");
             ctx.fillStyle = gradWater;
-            ctx.fillRect(goalScreenX, -100, cw, ch + 100);
+            ctx.fillRect(goalScreenX, waterfallStartY - 8, cw, ch - waterfallStartY + 8);
             
             ctx.fillStyle = "rgba(255,255,255,0.4)";
             let timeOffset = Date.now() / 7; 
             for(let i=0; i<60; i++) {
-                let dropY = ((i * 35 + timeOffset) % (ch + 100)) - 50; 
+                let dropRange = Math.max(60, ch - waterfallStartY + 40);
+                let dropY = waterfallStartY - 20 + ((i * 35 + timeOffset) % dropRange);
                 ctx.fillRect(goalScreenX + 10 + i*15, dropY, 4 + Math.random()*4, 40 + Math.random()*80);
             }
 
             for(let i=0; i<cw/20; i++) {
-                 let splashY = groundY - 20 + Math.sin(Date.now()/200 + i)*20; 
+                 let splashY = waterfallStartY - 12 + Math.sin(Date.now()/200 + i)*20; 
                  let splashRadius = 30 + Math.random()*30;
                  let cx = goalScreenX + i*25;
                  
