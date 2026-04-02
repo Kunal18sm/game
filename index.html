@@ -105,18 +105,20 @@
         /* Touch Controls (Moved Higher for mobile thumbs) */
         .controls {
             position: absolute;
-            bottom: 60px; /* Pehle 30px tha, ab thoda upar kiya */
+            bottom: 60px;
             width: 100%;
             display: flex;
             justify-content: space-between;
             padding: 0 40px;
             box-sizing: border-box;
             pointer-events: none;
+            align-items: flex-end;
         }
 
         .control-group {
             display: flex;
             gap: 20px;
+            align-items: flex-end;
         }
 
         .btn {
@@ -133,6 +135,16 @@
             -webkit-user-select: none;
             transition: background-color 0.1s;
             cursor: pointer;
+        }
+
+        /* Jump button is bigger! */
+        #btnJump {
+            width: 95px;
+            height: 95px;
+        }
+        #btnJump svg {
+            width: 55px;
+            height: 55px;
         }
 
         .btn:active, .btn.active {
@@ -340,9 +352,9 @@
             A terrifying shadow beast is hunting you. Tap anywhere to enter FULLSCREEN and RUN!
         </div>
         <div class="mechanic-desc">
-            <p><span class="highlight-yellow">⚡ Speed Bolts:</span> Collect to boost speed. Miss them, and the beast gets a 2x SPEED BOOST for 2s!</p>
+            <p><span class="highlight-yellow">⚡ Speed Bolts:</span> Collect to boost speed for 1s. Miss them, and the beast gets a 2x SPEED BOOST for 2s!</p>
             <p><span class="highlight-red">▲ Obstacles (Bushes/Snakes):</span> Touching them slows you down drastically.</p>
-            <p><span style="color:#8b4513; font-weight:bold;">● Mud (After 30k):</span> Slows you down heavily for 3 SECONDS!</p>
+            <p><span style="color:#8b4513; font-weight:bold;">● Mud (Starts at 5k):</span> Slows you down heavily for 3 SECONDS!</p>
             <p><span class="highlight-blue">♒ Waterfall:</span> The goal is 50,000 meters away.</p>
         </div>
         <button class="play-btn" id="playButton" onclick="startGame(event)">RUN!</button>
@@ -379,7 +391,6 @@
         // Try to lock orientation to landscape
         if (screen.orientation && screen.orientation.lock) {
             screen.orientation.lock('landscape').catch(err => {
-                // Often fails if not interacting properly, but we handle via CSS anyway
                 console.log("Orientation lock not supported or failed:", err);
             });
         }
@@ -406,13 +417,50 @@
     const winScreen = document.getElementById('winScreen');
     const deathReason = document.getElementById('deathReason');
 
-    // Setup Canvas Size
+    // --- GAME STATE VARIABLES (Moved up to prevent TDZ initialization errors) ---
     let cw, ch;
+    let groundY;
+    const GROUND_HEIGHT = 100; 
+
+    let player = null;
+    let chaser = null;
+    // Game State variables
+    let gameState = 'start'; 
+    let cameraX = 0;
+    let score = 0;
+    let animationFrameId;
+    let lastTime = 0;
+    
+    // Tutorial Trackers
+    let tutorials = { coinSeen: false, obstacleSeen: false, pitSeen: false, mudSeen: false };
+    const keys = { left: false, right: false, up: false };
+
+    // Setup Canvas Size & Mobile Zoom-Out Logic
     function resize() {
-        cw = window.innerWidth;
-        ch = window.innerHeight;
+        let actualWidth = window.innerWidth;
+        let actualHeight = window.innerHeight;
+
+        // Mobile par game ko zoom-out karne ke liye logical internal resolution badhai gayi hai
+        if (actualWidth < 900) {
+            let targetWidth = 1100; // Screen ko 'chota' dikhane ke liye game width fix
+            let scaleFactor = targetWidth / actualWidth;
+            cw = targetWidth;
+            ch = actualHeight * scaleFactor;
+        } else {
+            cw = actualWidth;
+            ch = actualHeight;
+        }
+
         canvas.width = cw;
         canvas.height = ch;
+
+        // Update ground based on new scaled height
+        groundY = ch - GROUND_HEIGHT;
+        if (player && player.y > groundY - 100) {
+            // Adjust player/chaser positions if falling through map on resize
+            player.y = Math.min(player.y, groundY);
+            if (chaser) chaser.y = Math.min(chaser.y, groundY);
+        }
     }
     window.addEventListener('resize', resize);
     resize();
@@ -420,8 +468,6 @@
     // Game Constants
     const LEVEL_LENGTH = 50000; 
     const GRAVITY = 0.45; 
-    const GROUND_HEIGHT = 100; 
-    let groundY = ch - GROUND_HEIGHT;
 
     // --- TERRAIN LOGIC ---
     function getSurfaceY(x) {
@@ -442,26 +488,6 @@
         let pit = getPitAt(x);
         return pit ? sy + pit.depth : sy;
     }
-
-    // Input State
-    const keys = { left: false, right: false, up: false };
-
-    // Game State variables
-    let gameState = 'start'; 
-    let cameraX = 0;
-    let score = 0;
-    let animationFrameId;
-    let lastTime = 0;
-    let milestoneReached = 0;
-    
-    // Tutorial Trackers
-    let tutorials = { coinSeen: false, obstacleSeen: false, pitSeen: false, mudSeen: false };
-
-    // Entities
-    let player = {};
-    let chaser = {};
-    let dragon = {}; 
-    let environment = { stars: [], bushes: [], snakes: [], pits: [], mud: [], treesFar: [], treesMid: [], treesNear: [], grass: [] };
 
     // Initialization
     function initEntities() {
@@ -485,9 +511,10 @@
             upPrev: false,
             doubleJumpUsed: false,
             isSwinging: false,
-            currentSwingingPit: null, // Rassi ka curve calculate karne ke liye pit data save karenge
+            currentSwingingPit: null,
             pitEscapeTaps: 0,
             mudSlowTimer: 0,
+            boostTimer: 0, // Player temporary boost timer
             hasAutoJumped: false
         };
 
@@ -510,14 +537,13 @@
             active: false,
             x: 0,
             y: 0,
-            timer: 60, // Game start hote hi jaldi dikhega!
+            timer: 30, // Game start hote hi jaldi dikhega!
             speed: 6, // Thoda fast cross karega
             direction: 1 // 1 for right, -1 for left
         };
 
         score = 0;
         cameraX = 0;
-        milestoneReached = 0;
         tutorials = { coinSeen: false, obstacleSeen: false, pitSeen: false, mudSeen: false };
         updateHUD();
         generateLevel();
@@ -545,8 +571,8 @@
                 continue;
             }
 
-            // Mud (Keechad) appears after 30000m
-            if (currentX > 30000 && rand < 0.20) {
+            // Mud (Keechad) appears after 5000m
+            if (currentX > 5000 && rand < 0.20) {
                 let mWidth = 80 + Math.random() * 70;
                 environment.mud.push({
                     x: currentX,
@@ -646,8 +672,11 @@
         const el = document.createElement('div');
         el.className = 'floating-text';
         el.innerText = text;
-        el.style.left = (x - cameraX) + 'px';
-        el.style.top = y + 'px';
+        // Project to screen using scaling logic
+        let screenX = (x - cameraX) * (window.innerWidth / cw);
+        let screenY = y * (window.innerHeight / ch);
+        el.style.left = screenX + 'px';
+        el.style.top = screenY + 'px';
         el.style.color = color;
         uiLayer.appendChild(el);
         setTimeout(() => { if(el.parentNode) el.parentNode.removeChild(el); }, 1000);
@@ -687,11 +716,11 @@
     function checkCollisions() {
         const pRect = { x: player.x, y: player.y, w: player.width, h: player.height };
         const cRect = { x: chaser.x, y: chaser.y - chaser.height, w: chaser.width, h: chaser.height };
-        // Mud (Keechad) Slipping Check
+
         for (let mud of environment.mud) {
             if (player.mudSlowTimer === 0 && player.grounded && player.x > mud.x && player.x < mud.x + mud.width) {
                 player.mudSlowTimer = 180; 
-                createFloatingText("Mud! Slowed 3s!", window.innerWidth/2, player.y - 40, "#8b4513");
+                createFloatingText("Mud! Slowed 3s!", player.x, player.y - 40, "#8b4513");
             }
         }
 
@@ -703,23 +732,20 @@
                 environment.stars.splice(i, 1);
                 
                 chaser.baseSpeed = Math.min(chaser.baseSpeed + 0.05, 11); 
-                chaser.boostTimer = 120; // 2 SECONDS 2x BOOST (Pehle 180 tha)
+                chaser.boostTimer = 120; // 2 SECONDS 2x BOOST
                 chaser.glowTimer = 120; 
                 
-                createFloatingText("Beast 2x Speed!", Math.max(50, player.x - cameraX), ch/2, "#ff4444");
+                createFloatingText("Beast 2x Speed!", Math.max(50, player.x), ch/2, "#ff4444");
                 continue;
             }
 
             if (AABB(pRect, sRect)) {
                 score += 100;
-                player.baseSpeed = Math.min(player.baseSpeed + 0.10, 11); 
+                player.boostTimer = 60; // 1 SECOND 1.5x BOOST (60 frames)
                 player.glowTimer = 60; 
                 environment.stars.splice(i, 1);
                 updateHUD();
-                
-                const screenX = (star.x - cameraX) / cw * window.innerWidth;
-                const screenY = star.y / ch * window.innerHeight;
-                createFloatingText("+Speed!", screenX, screenY, "gold");
+                createFloatingText("+Speed!", star.x, star.y, "gold");
             }
         }
 
@@ -728,7 +754,7 @@
             if (AABB(pRect, {x: bush.x, y: bY - bush.height, w: bush.width, h: bush.height})) {
                 if (player.slowTimer === 0) {
                     player.slowTimer = 90; 
-                    createFloatingText("Slowed!", window.innerWidth/2, player.y - 20, "#aaa");
+                    createFloatingText("Slowed!", player.x, player.y - 20, "#aaa");
                 }
             }
         }
@@ -739,7 +765,7 @@
                 player.invulnTimer = 60; 
                 player.slowTimer = 120; 
                 player.vx = -5; 
-                createFloatingText("Poison! Speed Down!", window.innerWidth/2, player.y - 40, "#4caf50");
+                createFloatingText("Poison! Speed Down!", player.x, player.y - 40, "#4caf50");
             }
         }
     }
@@ -795,7 +821,7 @@
                 let firstObs = allObstacles[0];
                 if (firstObs.x - cameraX > 50 && firstObs.x - cameraX < cw * 0.6) {
                     tutorials.obstacleSeen = true;
-                    showTutorial("Danger!", "Thorny bushes and snakes!\nTouching them will drastically reduce your speed for a few seconds. Jump (Up Arrow) to dodge!", firstObs.x, groundY - 20, 'obstacle');
+                    showTutorial("Danger!", "Thorny bushes and snakes!\nTouching them will drastically reduce your speed for a few seconds. Jump (Up Arrow) to dodge!", firstObs.x, getSurfaceY(firstObs.x) - 20, 'obstacle');
                     return;
                 }
             }
@@ -805,7 +831,7 @@
             let firstPit = environment.pits[0];
             if (firstPit.x - cameraX > 50 && firstPit.x - cameraX < cw * 0.6) {
                 tutorials.pitSeen = true;
-                showTutorial("Massive Pit & Rope!", "Double jump when near the pit to grab the rope and swing across! Normal jumps WON'T work here! If you fall, TAP JUMP 5 TIMES to escape!", firstPit.x + firstPit.width/2, groundY - 100, 'obstacle');
+                showTutorial("Massive Pit & Rope!", "Double jump when near the pit to grab the rope and swing across! Normal jumps WON'T work here! If you fall, TAP JUMP 5 TIMES to escape!", firstPit.x + firstPit.width/2, getSurfaceY(firstPit.x) - 100, 'obstacle');
                 return;
             }
         }
@@ -814,26 +840,9 @@
             let firstMud = environment.mud[0];
             if (firstMud.x - cameraX > 50 && firstMud.x - cameraX < cw * 0.6) {
                 tutorials.mudSeen = true;
-                showTutorial("Rain & Mud!", "Heavy rain has started! If you step in the mud, your speed will drastically drop for 3 SECONDS. Jump over it!", firstMud.x + firstMud.width/2, groundY - 50, 'obstacle');
+                showTutorial("Rain & Mud!", "Heavy rain has started! If you step in the mud, your speed will drastically drop for 3 SECONDS. Jump over it!", firstMud.x + firstMud.width/2, getSurfaceY(firstMud.x) - 50, 'obstacle');
                 return;
             }
-        }
-
-        let currentMilestone = Math.floor(player.x / 5000);
-        if (currentMilestone > milestoneReached && currentMilestone > 0 && currentMilestone < 10) {
-            milestoneReached = currentMilestone;
-            
-            player.baseSpeed = 5;
-            chaser.baseSpeed = 4.6;
-            chaser.targetSpeed = 4.6;
-            chaser.speed = 4.6;
-            chaser.boostTimer = 0; 
-            
-            let newDist = Math.max(600, 1200 - (currentMilestone * 150));
-            chaser.x = player.x - newDist; 
-            
-            createFloatingText("Speed Reset! Beast is Closer!", window.innerWidth/2, 150, "#4caf50");
-            createFloatingText(currentMilestone * 5000 + "m Cleared!", window.innerWidth/2, 100, "gold");
         }
 
         let playerCenter = player.x + player.width / 2;
@@ -874,32 +883,28 @@
                 
                 if (player.y < inPitZone.ropeY + 80) {
                     player.isSwinging = true;
-                    player.currentSwingingPit = inPitZone; // Rassi pakad li
+                    player.currentSwingingPit = inPitZone; 
                     player.swingEndX = inPitZone.x + inPitZone.width + 30;
                     player.vy = 0;
-                    createFloatingText("Swinging!", window.innerWidth/2, 200, "white");
+                    createFloatingText("Swinging!", player.x, player.y - 50, "white");
                 }
             }
         }
 
         if (player.isSwinging) {
-            // Rassi ke jhukao (curve) ke hisaab se Y position nikalna
             if (player.currentSwingingPit) {
                 let pit = player.currentSwingingPit;
                 let startX = pit.x - 50;
                 let endX = pit.x + pit.width + 50;
                 let startY = pit.ropeY - 20;
-                let ctrlY = pit.ropeY + pit.width * 0.15; // Rassi ka bottom dip
+                let ctrlY = pit.ropeY + pit.width * 0.15; 
                 let endY = pit.ropeY - 20;
                 
-                // Pata lagana ki player rassi pe kitna aage hai (0 se 1 ke beech)
                 let t = (player.x - startX) / (endX - startX);
-                t = Math.max(0, Math.min(1, t)); // 0 aur 1 ke beech lock karein
+                t = Math.max(0, Math.min(1, t)); 
                 
-                // Quadratic Bezier Curve Formula
                 let curveY = Math.pow(1 - t, 2) * startY + 2 * (1 - t) * t * ctrlY + Math.pow(t, 2) * endY;
-                
-                player.y = curveY + 20; // Hathon ko rassi se align karne ke liye offset
+                player.y = curveY + 20; 
             }
             
             player.vx = player.baseSpeed + 1.5; 
@@ -932,6 +937,9 @@
         } else if (player.slowTimer > 0) {
             player.slowTimer--;
             player.speed = player.baseSpeed * 0.5; 
+        } else if (player.boostTimer > 0) {
+            player.boostTimer--;
+            player.speed = player.baseSpeed * 1.5; // 1.5x Speed for 1 second
         } else {
             player.speed = player.baseSpeed;
         }
@@ -970,7 +978,6 @@
         } else {
             dragon.x += dragon.speed * dragon.direction; 
             
-            // Screen cross karte hi turant gayab aur direction flip
             if (dragon.direction === 1 && dragon.x > cameraX + cw + 800) { 
                 dragon.active = false;
                 dragon.direction = -1; // Ab wapas right se left aayega
@@ -1382,6 +1389,7 @@
             
             ctx.beginPath();
             ctx.moveTo(px - 50, pit.ropeY - 20);
+            // Adjusting rope curve dynamically to pit width
             ctx.quadraticCurveTo(px + pit.width/2, pit.ropeY + pit.width*0.15, px + pit.width + 50, pit.ropeY - 20);
             ctx.stroke();
             
@@ -1569,7 +1577,7 @@
                 ctx.shadowColor = "#8b4513";
                 ctx.shadowBlur = 5;
                 let secondsLeft = Math.ceil(player.mudSlowTimer / 60);
-                ctx.fillText(`Slowed ${secondsLeft}s`, px + 15, py - 30);
+                ctx.fillText(`Slowed ${secondsLeft}s`, px, py - 30);
                 ctx.shadowBlur = 0;
             }
         }
@@ -1691,7 +1699,7 @@
     }
 
     function startGame(event) {
-        if (event) event.stopPropagation(); // Prevent duplicate clicks
+        if (event) event.stopPropagation(); 
         
         if (document.activeElement) {
             document.activeElement.blur();
