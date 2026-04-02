@@ -1,0 +1,1615 @@
+﻿// --- FULLSCREEN & LANDSCAPE LOCK LOGIC ---
+    function makeFullscreen() {
+        let elem = document.documentElement;
+        if (elem.requestFullscreen) {
+            elem.requestFullscreen().catch(err => console.log(err));
+        } else if (elem.webkitRequestFullscreen) { /* Safari */
+            elem.webkitRequestFullscreen();
+        } else if (elem.msRequestFullscreen) { /* IE11 */
+            elem.msRequestFullscreen();
+        }
+        
+        // Try to lock orientation to landscape
+        if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock('landscape').catch(err => {
+                console.log("Orientation lock not supported or failed:", err);
+            });
+        }
+    }
+
+    // Trigger fullscreen anywhere on body click if game hasn't started or is starting
+    document.body.addEventListener('click', () => {
+        makeFullscreen();
+    });
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const uiLayer = document.getElementById('ui-layer');
+
+    // UI Elements
+    const scoreText = document.getElementById('scoreText');
+    const progressBar = document.getElementById('progressBar');
+    const chaserWarning = document.getElementById('chaser-warning');
+    const tutorialPopup = document.getElementById('tutorialPopup');
+    
+    // Screens
+    const startScreen = document.getElementById('startScreen');
+    const loadingScreen = document.getElementById('loadingScreen');
+    const gameOverScreen = document.getElementById('gameOverScreen');
+    const winScreen = document.getElementById('winScreen');
+    const deathReason = document.getElementById('deathReason');
+    const playButton = document.getElementById('playButton');
+    const loadingFill = document.getElementById('loadingFill');
+    const loadingStatus = document.getElementById('loadingStatus');
+
+    // --- GAME STATE VARIABLES ---
+    let cw, ch;
+    let groundY;
+    const GROUND_HEIGHT = 100; 
+
+    let player = null;
+    let chaser = null;
+    let dragon = null;
+    let environment = { stars: [], bushes: [], snakes: [], pits: [], mud: [], treesFar: [], treesMid: [], treesNear: [], grass: [] };
+    // Game State variables
+    let gameState = 'start'; 
+    let cameraX = 0;
+    let score = 0;
+    let animationFrameId;
+    let lastTime = 0;
+    let isGameStarting = false;
+    
+    // Tutorial persistence
+    const TUTORIAL_STORAGE_KEY = 'missiongame_tutorial_state_v1';
+    function createDefaultTutorialState() {
+        return { coinSeen: false, obstacleSeen: false, pitSeen: false, mudSeen: false };
+    }
+    function loadTutorialState() {
+        const defaultState = createDefaultTutorialState();
+        try {
+            const raw = localStorage.getItem(TUTORIAL_STORAGE_KEY);
+            if (!raw) return defaultState;
+            const parsed = JSON.parse(raw);
+            return {
+                coinSeen: !!parsed.coinSeen,
+                obstacleSeen: !!parsed.obstacleSeen,
+                pitSeen: !!parsed.pitSeen,
+                mudSeen: !!parsed.mudSeen
+            };
+        } catch (err) {
+            return defaultState;
+        }
+    }
+    function saveTutorialState() {
+        try {
+            localStorage.setItem(TUTORIAL_STORAGE_KEY, JSON.stringify(tutorials));
+        } catch (err) {
+            // Ignore storage write errors and continue gameplay.
+        }
+    }
+    function markTutorialSeen(tutorialKey) {
+        if (!tutorials[tutorialKey]) {
+            tutorials[tutorialKey] = true;
+            saveTutorialState();
+        }
+    }
+
+    // Tutorial Trackers
+    let tutorials = loadTutorialState();
+    const keys = { left: false, right: false, up: false };
+    let chaserWarningTimeoutId = null;
+    let chaserWarningShownInRange = false;
+
+    // Setup Canvas Size & Mobile Zoom-Out Logic
+    function resize() {
+        let actualWidth = window.innerWidth;
+        let actualHeight = window.innerHeight;
+
+        // Mobile par game ko zoom-out karne ke liye proportional resolution maintain kiya gaya hai
+        if (actualWidth < 900) {
+            let targetWidth = 1200; // Fixed higher internal width for zoom-out effect
+            let aspect = actualHeight / actualWidth;
+            cw = targetWidth;
+            ch = targetWidth * aspect; // Exact aspect ratio to prevent gray gap at bottom
+        } else {
+            cw = actualWidth;
+            ch = actualHeight;
+        }
+
+        canvas.width = cw;
+        canvas.height = ch;
+
+        // Update ground based on new scaled height
+        groundY = ch - GROUND_HEIGHT;
+        if (player && player.y > groundY - 100) {
+            player.y = Math.min(player.y, groundY);
+        }
+        if (chaser && chaser.y > groundY - 100) {
+            chaser.y = Math.min(chaser.y, groundY);
+        }
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Game Constants
+    const LEVEL_LENGTH = 50000; 
+    const GRAVITY = 0.45; 
+    const PLAYER_SPEED_UP_LERP = 0.045;
+    const PLAYER_SPEED_DOWN_LERP = 0.02;
+    const CHASER_SPEED_UP_LERP = 0.03;
+    const CHASER_SPEED_DOWN_LERP = 0.015;
+    const PLAYER_SWING_SPEED_BONUS = 1.5;
+    const PLAYER_BOOST_BASE_FRAMES = 180; // 3 seconds at 60fps
+    const PLAYER_BOOST_STACK_ADD_FRAMES = 60; // +1 second per extra boost while active
+    const CHASER_BOOST_FRAMES = 240; // 4 seconds at 60fps
+    const STAR_LOW_MIN_HEIGHT_ABOVE_GROUND = 30;
+    const STAR_LOW_MAX_HEIGHT_ABOVE_GROUND = 78;
+    const STAR_HIGH_MIN_HEIGHT_ABOVE_GROUND = 95;
+    const STAR_HIGH_MAX_HEIGHT_ABOVE_GROUND = 130;
+    const STAR_HIGH_CHANCE = 0.35; // Some boosts require a jump to collect.
+    const STAR_PLAYER_PICKUP_EXTRA_RADIUS = 8;
+    const SFX_CONFIG = {
+        damage: { path: 'assets/damaged.mp3', volume: 0.9, cooldownMs: 120 },
+        jump: { path: 'assets/jump.mp3', volume: 0.75, cooldownMs: 80 },
+        animalBoost: { path: 'assets/animal.mp3', volume: 0.9, cooldownMs: 120 },
+        playerBoost: { path: 'assets/boostcollect.mp3', volume: 0.85, cooldownMs: 120 }
+    };
+    const sfxBank = {};
+    const sfxLastPlayed = {};
+    let sfxPrimed = false;
+
+    function initSfx() {
+        for (const [key, config] of Object.entries(SFX_CONFIG)) {
+            const audio = new Audio(config.path);
+            audio.preload = 'auto';
+            sfxBank[key] = audio;
+        }
+    }
+
+    function primeSfx() {
+        if (sfxPrimed) return;
+        sfxPrimed = true;
+        for (const audio of Object.values(sfxBank)) {
+            audio.load();
+        }
+    }
+
+    function playSfx(key) {
+        const config = SFX_CONFIG[key];
+        const baseAudio = sfxBank[key];
+        if (!config || !baseAudio) return;
+
+        const now = performance.now();
+        const last = sfxLastPlayed[key] || 0;
+        if (now - last < config.cooldownMs) return;
+        sfxLastPlayed[key] = now;
+
+        const clip = baseAudio.cloneNode();
+        clip.volume = config.volume;
+        clip.play().catch(() => {
+            // Ignore autoplay restrictions and continue gameplay.
+        });
+    }
+    initSfx();
+
+    function waitForNextFrame() {
+        return new Promise(resolve => requestAnimationFrame(resolve));
+    }
+
+    function setLoadingProgress(percent, statusText) {
+        const safePercent = Math.max(0, Math.min(100, percent));
+        loadingFill.style.width = `${safePercent}%`;
+        if (statusText) loadingStatus.innerText = statusText;
+    }
+
+    // --- TERRAIN LOGIC ---
+    function getSurfaceY(x) {
+        let hillOffset = Math.sin(x / 400) * 20 + Math.sin(x / 1000) * 40;
+        if (x < 1000) hillOffset = 0; 
+        else if (x < 2000) hillOffset *= (x - 1000) / 1000;
+        if (x > LEVEL_LENGTH - 1000) hillOffset = 0;
+        else if (x > LEVEL_LENGTH - 2000) hillOffset *= (LEVEL_LENGTH - 1000 - x) / 1000;
+        return groundY - hillOffset;
+    }
+
+    function getPitAt(x) {
+        return environment.pits.find(p => x > p.x && x < p.x + p.width);
+    }
+
+    function getGroundY(x) {
+        let sy = getSurfaceY(x);
+        let pit = getPitAt(x);
+        return pit ? sy + pit.depth : sy;
+    }
+
+    // Initialization
+    function initEntities() {
+        groundY = ch - GROUND_HEIGHT;
+
+        player = {
+            x: 800, 
+            y: groundY,
+            width: 30,
+            height: 60,
+            vx: 0,
+            vy: 0,
+            baseSpeed: 5, 
+            speed: 5,
+            jumpPower: -10, 
+            grounded: false,
+            slowTimer: 0,
+            invulnTimer: 0,
+            legAngle: 0,
+            glowTimer: 0,
+            upPrev: false,
+            doubleJumpUsed: false,
+            isSwinging: false,
+            currentSwingingPit: null,
+            pitEscapeTaps: 0,
+            mudSlowTimer: 0,
+            boostTimer: 0, 
+            hasAutoJumped: false
+        };
+
+        chaser = {
+            x: -400, 
+            y: groundY,
+            vy: 0,
+            grounded: true,
+            baseSpeed: 5.27, // Animal speed is now exactly equal to player
+            speed: 5,
+            width: 150,
+            height: 100,
+            targetSpeed: 5, // Target speed matches player
+            glowTimer: 0,
+            boostTimer: 0,
+            autoBoostTimer: 1500 // 25 seconds at 60fps
+        };
+
+        // Background Dragon Initialization (Shadow Style)
+        dragon = {
+            active: false,
+            x: 0,
+            y: 0,
+            timer: 30, // Game start hote hi jaldi dikhega!
+            speed: 6, // Thoda fast cross karega
+            direction: 1 // 1 for right, -1 for left
+        };
+
+        score = 0;
+        cameraX = 0;
+        tutorials = loadTutorialState();
+        updateHUD();
+    }
+
+    async function generateLevel() {
+        environment = { stars: [], bushes: [], snakes: [], pits: [], mud: [], treesFar: [], treesMid: [], treesNear: [], grass: [] };
+        setLoadingProgress(10, "Building terrain layout...");
+        await waitForNextFrame();
+        
+        let currentX = 2500; 
+        let segmentCounter = 0;
+
+        while (currentX < LEVEL_LENGTH - 500) {
+            let rand = Math.random();
+            let surfaceY = getSurfaceY(currentX); 
+            
+            // Pits appear after 15000m
+            if (currentX > 15000 && rand < 0.15) {
+                let pitWidth = 500 + Math.random() * 200; // MASSIVE PITS
+                environment.pits.push({
+                    x: currentX,
+                    width: pitWidth,
+                    depth: GROUND_HEIGHT + 200, 
+                    ropeY: getSurfaceY(currentX + pitWidth/2) - 180 
+                });
+                currentX += pitWidth + 300 + Math.random() * 200; 
+                continue;
+            }
+
+            // Mud (Keechad) appears after 5000m
+            if (currentX > 5000 && rand < 0.20) {
+                let mWidth = 80 + Math.random() * 70;
+                environment.mud.push({
+                    x: currentX,
+                    width: mWidth,
+                    y: getSurfaceY(currentX + mWidth/2)
+                });
+                currentX += 400 + Math.random() * 200; 
+                continue;
+            }
+
+            if (rand < 0.55) {
+                // Spawn Power Point (Star)
+                const isHighStar = Math.random() < STAR_HIGH_CHANCE;
+                const minStarHeightAboveGround = isHighStar
+                    ? STAR_HIGH_MIN_HEIGHT_ABOVE_GROUND
+                    : STAR_LOW_MIN_HEIGHT_ABOVE_GROUND;
+                const maxStarHeightAboveGround = isHighStar
+                    ? STAR_HIGH_MAX_HEIGHT_ABOVE_GROUND
+                    : STAR_LOW_MAX_HEIGHT_ABOVE_GROUND;
+                const starHeightAboveGround =
+                    minStarHeightAboveGround +
+                    Math.random() * (maxStarHeightAboveGround - minStarHeightAboveGround);
+                environment.stars.push({
+                    x: currentX,
+                    y: surfaceY - starHeightAboveGround,
+                    size: 15,
+                    collected: false
+                });
+                currentX += 150 + Math.random() * 150; 
+            } 
+            else if (rand < 0.8) {
+                // Spawn Bush
+                let bWidth = 50 + Math.random() * 40;
+                environment.bushes.push({
+                    x: currentX,
+                    width: bWidth,
+                    height: 40 + Math.random() * 30
+                });
+                currentX += 300 + Math.random() * 300;
+            } 
+            else {
+                // Spawn Snake
+                environment.snakes.push({
+                    x: currentX,
+                    width: 40,
+                    height: 20,
+                    frame: 0
+                });
+                currentX += 400 + Math.random() * 400; 
+            }
+
+            segmentCounter++;
+            if (segmentCounter % 80 === 0) {
+                let terrainProgress = 10 + (Math.min(currentX, LEVEL_LENGTH) / LEVEL_LENGTH) * 45;
+                setLoadingProgress(terrainProgress, "Placing hazards and boosts...");
+                await waitForNextFrame();
+            }
+        }
+
+        setLoadingProgress(58, "Growing distant forest...");
+        await waitForNextFrame();
+
+        // Generate Trees for Parallax
+        for(let i=0; i<LEVEL_LENGTH; i+= 150 + Math.random()*100) {
+            environment.treesFar.push({ x: i, width: 20+Math.random()*20, height: ch*0.6+Math.random()*ch*0.3, type: Math.floor(Math.random()*3) });
+        }
+
+        setLoadingProgress(72, "Growing mid forest...");
+        await waitForNextFrame();
+
+        for(let i=0; i<LEVEL_LENGTH; i+= 200 + Math.random()*150) {
+            environment.treesMid.push({ x: i, width: 30+Math.random()*30, height: ch*0.7+Math.random()*ch*0.3, type: Math.floor(Math.random()*3) });
+        }
+
+        setLoadingProgress(84, "Growing near forest...");
+        await waitForNextFrame();
+
+        for(let i=0; i<LEVEL_LENGTH; i+= 300 + Math.random()*200) {
+            environment.treesNear.push({ x: i, width: 40+Math.random()*50, height: ch*0.9, type: Math.floor(Math.random()*3) });
+        }
+
+        setLoadingProgress(92, "Shaping foreground...");
+        await waitForNextFrame();
+
+        // Foreground grass bumps
+        for(let i=0; i<LEVEL_LENGTH; i+= 50) {
+            environment.grass.push({ x: i, height: Math.random() * 15 });
+        }
+
+        setLoadingProgress(100, "Map ready. Starting run...");
+        await waitForNextFrame();
+    }
+
+    // Input Handling
+    window.addEventListener('keydown', (e) => {
+        if (gameState === 'tutorial' && e.code === 'Enter') {
+            e.preventDefault(); 
+            resumeTutorial();
+            return;
+        }
+
+        if(gameState !== 'playing') return;
+        if(e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
+        if(e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+        if(e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') keys.up = true;
+    });
+    window.addEventListener('keyup', (e) => {
+        if(e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+        if(e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+        if(e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') keys.up = false;
+    });
+
+    function bindTouch(btnId, keyName) {
+        const btn = document.getElementById(btnId);
+        btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[keyName] = true; btn.classList.add('active'); });
+        btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[keyName] = false; btn.classList.remove('active'); });
+        btn.addEventListener('touchcancel', (e) => { e.preventDefault(); keys[keyName] = false; btn.classList.remove('active'); });
+    }
+    bindTouch('btnLeft', 'left');
+    bindTouch('btnRight', 'right');
+    bindTouch('btnJump', 'up');
+
+    // UI Updates
+    function updateHUD() {
+        scoreText.innerText = score;
+        let progress = Math.min((player.x / LEVEL_LENGTH) * 100, 100);
+        progressBar.style.width = Math.max(0, progress) + '%';
+    }
+
+    function createFloatingText(text, x, y, color) {
+        const el = document.createElement('div');
+        el.className = 'floating-text';
+        el.innerText = text;
+        // Project to screen using scaling logic
+        let screenX = (x - cameraX) * (window.innerWidth / cw);
+        let screenY = y * (window.innerHeight / ch);
+        el.style.left = screenX + 'px';
+        el.style.top = screenY + 'px';
+        el.style.color = color;
+        uiLayer.appendChild(el);
+        setTimeout(() => { if(el.parentNode) el.parentNode.removeChild(el); }, 1000);
+    }
+
+    function showTutorial(title, text, worldX, worldY, type) {
+        gameState = 'tutorial';
+        keys.left = false; keys.right = false; keys.up = false; 
+        
+        document.getElementById('tutTitle').innerText = title;
+        document.getElementById('tutText').innerText = text;
+        
+        let screenX = (worldX - cameraX) / cw * window.innerWidth;
+        let screenY = worldY / ch * window.innerHeight;
+        
+        tutorialPopup.style.borderColor = type === 'coin' ? 'gold' : '#ff4444';
+        tutorialPopup.style.left = screenX + 'px';
+        tutorialPopup.style.top = screenY + 'px';
+        tutorialPopup.classList.remove('hidden');
+    }
+
+    function resumeTutorial() {
+        tutorialPopup.classList.add('hidden');
+        gameState = 'playing';
+        lastTime = 0; 
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = requestAnimationFrame(gameLoop);
+    }
+
+    function AABB(r1, r2) {
+        return r1.x < r2.x + r2.w &&
+               r1.x + r1.w > r2.x &&
+               r1.y < r2.y + r2.h &&
+               r1.y + r1.h > r2.y;
+    }
+
+    function checkCollisions() {
+        const pRect = { x: player.x, y: player.y, w: player.width, h: player.height };
+        const cRect = { x: chaser.x, y: chaser.y - chaser.height, w: chaser.width, h: chaser.height };
+
+        for (let mud of environment.mud) {
+            if (player.mudSlowTimer === 0 && player.grounded && player.x > mud.x && player.x < mud.x + mud.width) {
+                player.mudSlowTimer = 180; 
+                createFloatingText("Mud! Slowed 3s!", player.x, player.y - 40, "#8b4513");
+                playSfx('damage');
+            }
+        }
+
+        for (let i = environment.stars.length - 1; i >= 0; i--) {
+            let star = environment.stars[i];
+            let starRect = { x: star.x - star.size, y: star.y - star.size, w: star.size * 2, h: star.size * 2 };
+            let playerPickupRadius = star.size + STAR_PLAYER_PICKUP_EXTRA_RADIUS;
+            let playerPickupRect = {
+                x: star.x - playerPickupRadius,
+                y: star.y - playerPickupRadius,
+                w: playerPickupRadius * 2,
+                h: playerPickupRadius * 2
+            };
+            
+            if (AABB(cRect, starRect) || chaser.x > star.x + 100) {
+                environment.stars.splice(i, 1);
+                
+                chaser.boostTimer = CHASER_BOOST_FRAMES; // 4 SECONDS 2x BOOST for missing power point
+                chaser.glowTimer = CHASER_BOOST_FRAMES; 
+                
+                createFloatingText("Beast 2x Speed!", Math.max(50, player.x), ch/2, "#ff4444");
+                playSfx('animalBoost');
+                continue;
+            }
+
+            if (AABB(pRect, playerPickupRect)) {
+                score += 100;
+                if (player.boostTimer > 0) {
+                    player.boostTimer += PLAYER_BOOST_STACK_ADD_FRAMES;
+                } else {
+                    player.boostTimer = PLAYER_BOOST_BASE_FRAMES;
+                }
+                player.glowTimer = Math.max(player.glowTimer, player.boostTimer);
+                environment.stars.splice(i, 1);
+                updateHUD();
+                createFloatingText("+Speed!", star.x, star.y, "gold");
+                playSfx('playerBoost');
+            }
+        }
+
+        for (let bush of environment.bushes) {
+            let bY = getSurfaceY(bush.x + bush.width/2);
+            if (player.boostTimer <= 0 && AABB(pRect, {x: bush.x, y: bY - bush.height, w: bush.width, h: bush.height})) {
+                if (player.slowTimer === 0) {
+                    player.slowTimer = 90; 
+                    createFloatingText("Slowed!", player.x, player.y - 20, "#aaa");
+                    playSfx('damage');
+                }
+            }
+        }
+
+        for (let snake of environment.snakes) {
+            let sY = getSurfaceY(snake.x + snake.width/2);
+            if (player.boostTimer <= 0 && player.invulnTimer === 0 && AABB(pRect, {x: snake.x, y: sY - snake.height, w: snake.width, h: snake.height})) {
+                player.invulnTimer = 60; 
+                player.slowTimer = 120; 
+                createFloatingText("Poison! Speed Down!", player.x, player.y - 40, "#4caf50");
+                playSfx('damage');
+            }
+        }
+    }
+
+    function update() {
+        if(gameState === 'winning_scene') {
+            const winTargetSpeed = player.baseSpeed;
+            const winSpeedLerp = winTargetSpeed < player.speed ? PLAYER_SPEED_DOWN_LERP : PLAYER_SPEED_UP_LERP;
+            player.speed += (winTargetSpeed - player.speed) * winSpeedLerp;
+            if (Math.abs(winTargetSpeed - player.speed) < 0.01) {
+                player.speed = winTargetSpeed;
+            }
+            player.vx = player.speed;
+            player.legAngle += 0.25; 
+            
+            if (player.x > LEVEL_LENGTH + 50 && player.grounded && !player.hasAutoJumped) {
+                player.vy = player.jumpPower * 1.3; 
+                player.grounded = false;
+                player.hasAutoJumped = true;
+            }
+            
+            player.vy += GRAVITY;
+            player.x += player.vx;
+            player.y += player.vy;
+            
+            if (!player.hasAutoJumped && player.y + player.height >= groundY) {
+                player.y = groundY - player.height;
+                player.vy = 0;
+                player.grounded = true;
+            } else if (player.hasAutoJumped) {
+                player.grounded = false; 
+            }
+            
+            let targetCameraX = player.x - cw / 3;
+            if (targetCameraX > cameraX) {
+                cameraX = Math.min(targetCameraX, LEVEL_LENGTH - cw/3 + 150); 
+            }
+            
+            if (player.y > ch + 200) {
+                endGame('win', "");
+            }
+            return;
+        }
+
+        if(gameState !== 'playing') return;
+
+        // Auto Boost for Beast every 25 seconds
+        if (chaser.autoBoostTimer > 0) {
+            chaser.autoBoostTimer--;
+        } else {
+            chaser.boostTimer = CHASER_BOOST_FRAMES; // 4 seconds boost
+            chaser.glowTimer = CHASER_BOOST_FRAMES;
+            chaser.autoBoostTimer = 1500; // Reset to 25 seconds
+            createFloatingText("Auto Boost!", Math.max(50, player.x), ch/2, "#ff4444");
+            playSfx('animalBoost');
+        }
+
+        if (!tutorials.coinSeen && environment.stars.length > 0) {
+            let firstStar = environment.stars[0];
+            if (firstStar.x - cameraX > 50 && firstStar.x - cameraX < cw * 0.6) {
+                markTutorialSeen('coinSeen');
+                showTutorial("Speed Bolt!", "Collect lightning bolts to increase your speed.\nBut beware, if you miss it, the beast will eat it and get 2X FASTER for 4s!", firstStar.x, firstStar.y, 'coin');
+                return;
+            }
+        }
+
+        if (!tutorials.obstacleSeen && (environment.bushes.length > 0 || environment.snakes.length > 0)) {
+            let allObstacles = [...environment.bushes, ...environment.snakes].sort((a,b) => a.x - b.x);
+            if (allObstacles.length > 0) {
+                let firstObs = allObstacles[0];
+                if (firstObs.x - cameraX > 50 && firstObs.x - cameraX < cw * 0.6) {
+                    markTutorialSeen('obstacleSeen');
+                    showTutorial("Danger!", "Thorny bushes and snakes!\nTouching them will drastically reduce your speed for a few seconds. Jump (Up Arrow) to dodge!", firstObs.x, getSurfaceY(firstObs.x) - 20, 'obstacle');
+                    return;
+                }
+            }
+        }
+
+        if (!tutorials.pitSeen && environment.pits.length > 0) {
+            let firstPit = environment.pits[0];
+            if (firstPit.x - cameraX > 50 && firstPit.x - cameraX < cw * 0.6) {
+                markTutorialSeen('pitSeen');
+                showTutorial("Massive Pit & Rope!", "Double jump when near the pit to grab the rope and swing across! Normal jumps WON'T work here! If you fall, TAP JUMP 5 TIMES to escape!", firstPit.x + firstPit.width/2, getSurfaceY(firstPit.x) - 100, 'obstacle');
+                return;
+            }
+        }
+
+        if (!tutorials.mudSeen && environment.mud.length > 0) {
+            let firstMud = environment.mud[0];
+            if (firstMud.x - cameraX > 50 && firstMud.x - cameraX < cw * 0.6) {
+                markTutorialSeen('mudSeen');
+                showTutorial("Rain & Mud!", "Heavy rain has started! If you step in the mud, your speed will drastically drop for 3 SECONDS. Jump over it!", firstMud.x + firstMud.width/2, getSurfaceY(firstMud.x) - 50, 'obstacle');
+                return;
+            }
+        }
+
+        let playerCenter = player.x + player.width / 2;
+        let currentPit = getPitAt(playerCenter);
+        let inPitZone = environment.pits.find(p => player.x > p.x - 50 && player.x < p.x + p.width + 50);
+        let currentGroundY = getGroundY(playerCenter);
+        let trappedInPit = currentPit && player.y > getSurfaceY(playerCenter) + 10;
+
+        if (keys.left && !trappedInPit) {
+            player.vx = -player.speed;
+            player.legAngle -= 0.25; 
+        } else if (keys.right && !trappedInPit) {
+            player.vx = player.speed;
+            player.legAngle += 0.25; 
+        } else {
+            player.vx = 0;
+            player.legAngle = 0;
+        }
+
+        let jumpTriggered = keys.up && !player.upPrev;
+        player.upPrev = keys.up;
+
+        if (jumpTriggered) {
+            let didJump = false;
+            if (trappedInPit && !player.isSwinging) {
+                player.pitEscapeTaps++;
+                if (player.pitEscapeTaps >= 5) {
+                    player.vy = -16; 
+                    player.pitEscapeTaps = 0;
+                    player.grounded = false;
+                    didJump = true;
+                }
+            } else if (player.grounded && !player.isSwinging) {
+                player.vy = player.jumpPower;
+                player.grounded = false;
+                player.doubleJumpUsed = false;
+                didJump = true;
+            } else if (!player.grounded && inPitZone && !player.doubleJumpUsed && !player.isSwinging) {
+                player.vy = player.jumpPower * 0.9;
+                player.doubleJumpUsed = true;
+                didJump = true;
+                
+                if (player.y < inPitZone.ropeY + 80) {
+                    player.isSwinging = true;
+                    player.currentSwingingPit = inPitZone; 
+                    player.swingEndX = inPitZone.x + inPitZone.width + 30;
+                    player.vy = 0;
+                    createFloatingText("Swinging!", player.x, player.y - 50, "white");
+                }
+            }
+
+            if (didJump) {
+                playSfx('jump');
+            }
+        }
+
+        if (player.isSwinging) {
+            if (player.currentSwingingPit) {
+                let pit = player.currentSwingingPit;
+                let startX = pit.x - 50;
+                let endX = pit.x + pit.width + 50;
+                let startY = pit.ropeY - 20;
+                let ctrlY = pit.ropeY + pit.width * 0.15; 
+                let endY = pit.ropeY - 20;
+                
+                let t = (player.x - startX) / (endX - startX);
+                t = Math.max(0, Math.min(1, t)); 
+                
+                let curveY = Math.pow(1 - t, 2) * startY + 2 * (1 - t) * t * ctrlY + Math.pow(t, 2) * endY;
+                player.y = curveY + 20; 
+            }
+            
+            player.vx = player.speed; 
+            player.vy = 0;
+            if (player.x > player.swingEndX) {
+                player.isSwinging = false;
+                player.currentSwingingPit = null;
+            }
+        } else {
+            player.vy += GRAVITY;
+        }
+
+        player.x += player.vx;
+        player.y += player.vy;
+
+        if (!player.isSwinging && player.y + player.height >= currentGroundY) {
+            player.y = currentGroundY - player.height;
+            player.vy = 0;
+            player.grounded = true;
+            player.doubleJumpUsed = false;
+        } else if (!player.isSwinging) {
+            player.grounded = false;
+        }
+
+        if (player.x < 0) player.x = 0;
+
+        let playerTargetSpeed = player.baseSpeed;
+        if (player.mudSlowTimer > 0) {
+            player.mudSlowTimer--;
+            playerTargetSpeed = player.baseSpeed * 0.4;
+        } else if (player.slowTimer > 0) {
+            player.slowTimer--;
+            playerTargetSpeed = player.baseSpeed * 0.5;
+        } else if (player.boostTimer > 0) {
+            player.boostTimer--;
+            playerTargetSpeed = player.baseSpeed * 1.5; // 1.5x Speed while boost timer is active
+        }
+
+        if (player.isSwinging) {
+            playerTargetSpeed = Math.max(playerTargetSpeed, player.baseSpeed + PLAYER_SWING_SPEED_BONUS);
+        }
+
+        // Smooth speed transitions for every state change (boost/slow/mud/swing/normal).
+        const speedLerp = playerTargetSpeed < player.speed ? PLAYER_SPEED_DOWN_LERP : PLAYER_SPEED_UP_LERP;
+        player.speed += (playerTargetSpeed - player.speed) * speedLerp;
+        if (Math.abs(playerTargetSpeed - player.speed) < 0.01) {
+            player.speed = playerTargetSpeed;
+        }
+
+        if (player.invulnTimer > 0) player.invulnTimer--;
+        if (player.glowTimer > 0) player.glowTimer--;
+        if (chaser.glowTimer > 0) chaser.glowTimer--;
+
+        if (chaser.boostTimer > 0) {
+            chaser.boostTimer--;
+            chaser.targetSpeed = chaser.baseSpeed * 2; // Beast 2x speed
+        } else {
+            chaser.targetSpeed = chaser.baseSpeed; 
+        }
+
+        let targetCameraX = player.x - cw / 3;
+        if (targetCameraX > cameraX) cameraX = targetCameraX; 
+        if (player.x < cameraX + 50) player.x = cameraX + 50;
+
+        const chaserSpeedLerp = chaser.targetSpeed < chaser.speed ? CHASER_SPEED_DOWN_LERP : CHASER_SPEED_UP_LERP;
+        chaser.speed += (chaser.targetSpeed - chaser.speed) * chaserSpeedLerp;
+        if (Math.abs(chaser.targetSpeed - chaser.speed) < 0.01) {
+            chaser.speed = chaser.targetSpeed;
+        }
+        chaser.x += chaser.speed;
+
+        // --- DRAGON BACKGROUND AI (Screen Relative Spawning & Ping-Pong) ---
+        if (!dragon.active) {
+            dragon.timer--;
+            if (dragon.timer <= 0) {
+                dragon.active = true;
+                if (dragon.direction === 1) {
+                    dragon.x = cameraX - 800; // Screen ke just bahar left me
+                } else {
+                    dragon.x = cameraX + cw + 800; // Screen ke just bahar right me
+                }
+                dragon.y = ch * 0.05 + Math.random() * (ch * 0.3); 
+                dragon.speed = 6 + Math.random() * 3; 
+            }
+        } else {
+            dragon.x += dragon.speed * dragon.direction; 
+            
+            if (dragon.direction === 1 && dragon.x > cameraX + cw + 800) { 
+                dragon.active = false;
+                dragon.direction = -1; // Ab wapas right se left aayega
+                dragon.timer = 60 + Math.random() * 120; // 1 to 3 seconds me jaldi wapas
+            } else if (dragon.direction === -1 && dragon.x < cameraX - 800) {
+                dragon.active = false;
+                dragon.direction = 1; // Ab wapas left se right aayega
+                dragon.timer = 60 + Math.random() * 120; // 1 to 3 seconds me jaldi wapas
+            }
+        }
+
+        let cCenter = chaser.x + chaser.width / 2;
+        let chaserGroundY = getGroundY(cCenter);
+
+        chaser.vy += GRAVITY;
+        chaser.y += chaser.vy;
+        if (chaser.y >= chaserGroundY) {
+            chaser.y = chaserGroundY;
+            chaser.vy = 0;
+            chaser.grounded = true;
+        } else {
+            chaser.grounded = false;
+        }
+
+        for (let star of environment.stars) {
+            if (star.x > chaser.x && star.x < chaser.x + chaser.width * 1.5) {
+                if (star.y < chaser.y - chaser.height + 20 && chaser.grounded) {
+                    chaser.vy = -12; 
+                    chaser.grounded = false;
+                    break;
+                }
+            }
+        }
+
+        let distanceToChaser = player.x - chaser.x;
+        let chaserIsNear = distanceToChaser < cw && distanceToChaser > 0;
+        if (chaserIsNear) {
+            if (!chaserWarningShownInRange) {
+                chaserWarningShownInRange = true;
+                chaserWarning.innerText = "BEAST NEAR!";
+                chaserWarning.style.opacity = 1;
+
+                if (chaserWarningTimeoutId) {
+                    clearTimeout(chaserWarningTimeoutId);
+                }
+                chaserWarningTimeoutId = setTimeout(() => {
+                    chaserWarning.style.opacity = 0;
+                    chaserWarningTimeoutId = null;
+                }, 3000);
+            }
+        } else {
+            chaserWarningShownInRange = false;
+            chaserWarning.style.opacity = 0;
+            if (chaserWarningTimeoutId) {
+                clearTimeout(chaserWarningTimeoutId);
+                chaserWarningTimeoutId = null;
+            }
+        }
+
+        if (chaser.x + chaser.width/2 > player.x) {
+            endGame('lose', "The Shadow Beast devoured you!");
+            return;
+        }
+
+        if (player.x >= LEVEL_LENGTH) {
+            gameState = 'winning_scene';
+            keys.left = false;
+            keys.right = false;
+            keys.up = false;
+            return;
+        }
+
+        checkCollisions();
+    }
+
+    function drawTrees(trees, parallax, color) {
+        ctx.fillStyle = color;
+        
+        function drawBranch(startX, startY, ctrlX, ctrlY, endX, endY, thickness) {
+            ctx.beginPath();
+            ctx.moveTo(startX - thickness/2, startY);
+            ctx.quadraticCurveTo(ctrlX, ctrlY, endX, endY); 
+            ctx.quadraticCurveTo(ctrlX + thickness, ctrlY + thickness/2, startX + thickness/2, startY); 
+            ctx.fill();
+        }
+
+        for (let tree of trees) {
+            let screenX = tree.x - (cameraX * parallax);
+            if (screenX + tree.width < -100 || screenX > cw + 100) continue;
+
+            let baseExt = 150; 
+            let h = tree.height;
+            let w = tree.width;
+
+            ctx.beginPath();
+            ctx.moveTo(screenX - w/2, groundY + baseExt);
+            ctx.quadraticCurveTo(screenX - w/4, groundY - h/2, screenX, groundY - h); 
+            ctx.quadraticCurveTo(screenX + w/4, groundY - h/2, screenX + w/2, groundY + baseExt); 
+            ctx.fill();
+
+            if (tree.type === 0) {
+                drawBranch(screenX, groundY - h*0.3, screenX - w*0.8, groundY - h*0.4, screenX - w*1.5, groundY - h*0.6, w*0.4);
+                drawBranch(screenX, groundY - h*0.5, screenX + w*0.8, groundY - h*0.6, screenX + w*1.5, groundY - h*0.8, w*0.3);
+                drawBranch(screenX - w*0.1, groundY - h*0.6, screenX - w*0.6, groundY - h*0.8, screenX - w*1.0, groundY - h*0.95, w*0.25);
+                drawBranch(screenX + w*0.1, groundY - h*0.7, screenX + w*0.5, groundY - h*0.8, screenX + w*0.8, groundY - h*0.9, w*0.2);
+            } 
+            else if (tree.type === 1) {
+                drawBranch(screenX, groundY - h*0.2, screenX + w*1.0, groundY - h*0.3, screenX + w*2.0, groundY - h*0.4, w*0.5);
+                drawBranch(screenX + w*0.1, groundY - h*0.4, screenX + w*1.2, groundY - h*0.5, screenX + w*1.8, groundY - h*0.65, w*0.35);
+                drawBranch(screenX + w*0.1, groundY - h*0.65, screenX + w*0.8, groundY - h*0.8, screenX + w*1.2, groundY - h*0.95, w*0.2);
+                drawBranch(screenX, groundY - h*0.5, screenX - w*0.5, groundY - h*0.5, screenX - w*1.0, groundY - h*0.6, w*0.2);
+            } 
+            else {
+                drawBranch(screenX, groundY - h*0.2, screenX - w*0.5, groundY - h*0.2, screenX - w*1.2, groundY - h*0.3, w*0.3);
+                drawBranch(screenX, groundY - h*0.3, screenX + w*0.5, groundY - h*0.3, screenX + w*1.2, groundY - h*0.4, w*0.3);
+                drawBranch(screenX, groundY - h*0.45, screenX - w*0.6, groundY - h*0.5, screenX - w*1.0, groundY - h*0.6, w*0.2);
+                drawBranch(screenX, groundY - h*0.55, screenX + w*0.6, groundY - h*0.6, screenX + w*1.0, groundY - h*0.7, w*0.2);
+                drawBranch(screenX, groundY - h*0.7, screenX - w*0.4, groundY - h*0.8, screenX - w*0.6, groundY - h*0.9, w*0.15);
+                drawBranch(screenX, groundY - h*0.8, screenX + w*0.4, groundY - h*0.9, screenX + w*0.6, groundY - h*0.95, w*0.1);
+            }
+        }
+    }
+
+    function drawLimb(startX, startY, len1, rot1, len2, rot2, width, isDark = false) {
+        let kneeX = startX + Math.sin(rot1) * len1;
+        let kneeY = startY + Math.cos(rot1) * len1;
+        let footX = kneeX + Math.sin(rot1 + rot2) * len2;
+        let footY = kneeY + Math.cos(rot1 + rot2) * len2;
+        
+        ctx.lineWidth = width;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.strokeStyle = isDark ? "#222" : "#000"; 
+        
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(kneeX, kneeY);
+        ctx.lineTo(footX, footY);
+        ctx.stroke();
+        return { kneeX, kneeY, footX, footY };
+    }
+
+    function render() {
+        let grad = ctx.createLinearGradient(0, 0, 0, ch);
+        grad.addColorStop(0, "#444");
+        grad.addColorStop(0.5, "#999");
+        grad.addColorStop(1, "#fff");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, cw, ch);
+
+        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+        ctx.beginPath();
+        ctx.arc(cw * 0.8, ch * 0.25, ch * 0.15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+        ctx.beginPath();
+        ctx.arc(cw * 0.8, ch * 0.25, ch * 0.18, 0, Math.PI * 2);
+        ctx.fill();
+
+        drawTrees(environment.treesFar, 0.2, "#666");
+
+        // --- DRAW MASSIVE SHADOW DRAGON (Pure Black with Red Glow) ---
+        if (dragon.active) {
+            let dx = dragon.x - cameraX * 0.15; 
+            let dy = dragon.y + Math.sin(Date.now() / 1000) * 40; 
+            let runCycle = Date.now() / 200; 
+
+            ctx.save();
+            ctx.translate(dx, dy);
+            ctx.scale(dragon.direction * 3.5, 3.5); 
+            ctx.lineJoin = "round";
+            ctx.lineCap = "round";
+
+            let bodyLength = 260; 
+            let waveFreq = 0.04;
+            let waveAmp = 20;
+
+            // Global Danger Glow
+            ctx.shadowColor = "#ff0000"; 
+            ctx.shadowBlur = 20;
+
+            // 1. Spikes on Back
+            ctx.fillStyle = "#000"; 
+            ctx.beginPath();
+            for(let i = 0; i <= bodyLength; i+=6) {
+                let waveY = Math.sin(runCycle - i * waveFreq) * waveAmp; 
+                ctx.moveTo(-i, waveY - 4);
+                ctx.lineTo(-i - 5, waveY - 20); // Sharp spikes
+                ctx.lineTo(-i - 10, waveY - 4);
+            }
+            ctx.fill();
+
+            // 2. Main Pitch Black Shadow Body
+            ctx.lineWidth = 16;
+            ctx.strokeStyle = "#000"; 
+            ctx.beginPath();
+            for(let i = 0; i <= bodyLength; i+=4) {
+                let waveY = Math.sin(runCycle - i * waveFreq) * waveAmp;
+                if(i===0) ctx.moveTo(-i, waveY);
+                else ctx.lineTo(-i, waveY);
+            }
+            ctx.stroke();
+
+            // 3. Shadow Legs
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = "#000";
+            let legPositions = [40, 100, 170, 230];
+            for(let i=0; i<legPositions.length; i++) {
+                let lx = -legPositions[i];
+                let ly = Math.sin(runCycle - legPositions[i] * waveFreq) * waveAmp;
+                
+                ctx.fillStyle = "#000";
+                ctx.beginPath();
+                ctx.arc(lx, ly + 8, 4, 0, Math.PI*2);
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.moveTo(lx, ly);
+                let jointX = lx + (i%2===0 ? 12 : -12);
+                let jointY = ly + 15;
+                ctx.quadraticCurveTo(lx, ly + 10, jointX, jointY);
+                ctx.lineTo(jointX + 6, jointY + 6);
+                ctx.stroke();
+
+                // Claws
+                ctx.beginPath();
+                ctx.moveTo(jointX, jointY); ctx.lineTo(jointX - 4, jointY + 8);
+                ctx.moveTo(jointX, jointY); ctx.lineTo(jointX + 8, jointY + 8);
+                ctx.stroke();
+            }
+
+            // 4. Head
+            let headY = Math.sin(runCycle) * waveAmp;
+            ctx.save();
+            ctx.translate(0, headY);
+
+            // Head Base (Black Shadow)
+            ctx.fillStyle = "#000";
+            ctx.beginPath();
+            ctx.moveTo(0, -8);
+            ctx.lineTo(15, -12); 
+            ctx.lineTo(38, -5); 
+            ctx.lineTo(38, 2); 
+            ctx.lineTo(18, 5); 
+            ctx.lineTo(32, 10); 
+            ctx.lineTo(10, 12);
+            ctx.lineTo(-10, 5);
+            ctx.fill();
+            
+            // Mane/Hair
+            ctx.fillStyle = "#000";
+            ctx.beginPath();
+            ctx.moveTo(0, -8);
+            ctx.quadraticCurveTo(-10, -25, -25, -15);
+            ctx.quadraticCurveTo(-15, -5, -5, -5);
+            ctx.fill();
+
+            // Shadow Horns
+            ctx.strokeStyle = "#000";
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.moveTo(10, -10);
+            ctx.quadraticCurveTo(0, -25, -15, -20);
+            ctx.moveTo(12, -8);
+            ctx.quadraticCurveTo(5, -20, -5, -25);
+            ctx.stroke();
+
+            // Whiskers
+            ctx.strokeStyle = "#000";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(38, -2);
+            ctx.quadraticCurveTo(55, 10, 40, 28);
+            ctx.moveTo(38, -2);
+            ctx.quadraticCurveTo(65, 5, 55, 15);
+            ctx.stroke();
+
+            // Evil Core Glowing Eye
+            ctx.fillStyle = "#FFF";
+            ctx.shadowColor = "#ff0000";
+            ctx.shadowBlur = 20;
+            ctx.beginPath();
+            ctx.arc(22, -4, 3, 0, Math.PI*2);
+            ctx.fill();
+
+            ctx.restore(); // Undo Head Translate
+
+            // 5. Fiery Shadow Tail Tuft
+            let tailX = -bodyLength;
+            let tailY = Math.sin(runCycle - bodyLength * waveFreq) * waveAmp;
+            
+            ctx.save();
+            ctx.translate(tailX, tailY);
+            
+            ctx.fillStyle = "#000";
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.quadraticCurveTo(-20, -25, -40, -10);
+            ctx.quadraticCurveTo(-25, -5, -15, 0);
+            ctx.quadraticCurveTo(-35, 15, -25, 25);
+            ctx.quadraticCurveTo(-10, 10, 0, 0);
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.quadraticCurveTo(-10, -15, -25, -5);
+            ctx.quadraticCurveTo(-15, -2, -8, 0);
+            ctx.quadraticCurveTo(-20, 10, -15, 15);
+            ctx.quadraticCurveTo(-5, 5, 0, 0);
+            ctx.fill();
+            
+            ctx.restore(); // Undo Tail Translate
+
+            ctx.restore(); // Undo Full Dragon Transform
+            ctx.shadowBlur = 0; // RESET GLOBALLY
+        }
+
+        drawTrees(environment.treesMid, 0.5, "#333");
+        drawTrees(environment.treesNear, 0.8, "#1a1a1a");
+
+        if (player.x > 29000) {
+            let rainIntensity = Math.min(1, (player.x - 29000) / 1000);
+            
+            ctx.fillStyle = `rgba(0, 0, 0, ${0.4 * rainIntensity})`;
+            ctx.fillRect(0, 0, cw, ch);
+
+            ctx.strokeStyle = `rgba(150, 200, 255, ${0.5 * rainIntensity})`;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            let timeOffset = Date.now() / 20; 
+            for(let i=0; i<150; i++) {
+                let rx = (i * 30 + timeOffset * 8) % (cw + 200) - 100;
+                let ry = (Math.sin(i * 123) * ch + timeOffset * 25) % (ch + 100) - 50;
+                ctx.moveTo(rx, ry);
+                ctx.lineTo(rx - 15, ry + 30); 
+            }
+            ctx.stroke();
+        }
+
+        let goalScreenX = LEVEL_LENGTH - cameraX;
+        if (goalScreenX < cw) {
+            // Waterfall starts from the terrain edge (ground level), not from top of screen.
+            let waterfallStartY = getSurfaceY(LEVEL_LENGTH);
+            let gradWater = ctx.createLinearGradient(goalScreenX, 0, goalScreenX + 300, 0);
+            gradWater.addColorStop(0, "#4a90e2");
+            gradWater.addColorStop(0.5, "#88ccff");
+            gradWater.addColorStop(1, "#1c5b96");
+            ctx.fillStyle = gradWater;
+            ctx.fillRect(goalScreenX, waterfallStartY - 8, cw, ch - waterfallStartY + 8);
+            
+            ctx.fillStyle = "rgba(255,255,255,0.4)";
+            let timeOffset = Date.now() / 7; 
+            for(let i=0; i<60; i++) {
+                let dropRange = Math.max(60, ch - waterfallStartY + 40);
+                let dropY = waterfallStartY - 20 + ((i * 35 + timeOffset) % dropRange);
+                ctx.fillRect(goalScreenX + 10 + i*15, dropY, 4 + Math.random()*4, 40 + Math.random()*80);
+            }
+
+            for(let i=0; i<cw/20; i++) {
+                 let splashY = waterfallStartY - 12 + Math.sin(Date.now()/200 + i)*20; 
+                 let splashRadius = 30 + Math.random()*30;
+                 let cx = goalScreenX + i*25;
+                 
+                 let gradMist = ctx.createRadialGradient(cx, splashY, 0, cx, splashY, splashRadius);
+                 gradMist.addColorStop(0, "rgba(255,255,255,0.6)");
+                 gradMist.addColorStop(1, "rgba(255,255,255,0)");
+                 
+                 ctx.fillStyle = gradMist;
+                 ctx.beginPath();
+                 ctx.arc(cx, splashY, splashRadius, 0, Math.PI*2);
+                 ctx.fill();
+            }
+        }
+
+        ctx.fillStyle = "#000";
+        ctx.beginPath();
+        ctx.moveTo(0, ch);
+        ctx.lineTo(0, getGroundY(cameraX));
+        
+        let maxDrawX = Math.min(cw, LEVEL_LENGTH - cameraX); 
+        let currentDrawX = 0;
+        
+        for (let pit of environment.pits) {
+            let pitStartX = pit.x - cameraX;
+            let pitEndX = pit.x + pit.width - cameraX;
+            
+            if (pitEndX < 0 || pitStartX > maxDrawX) continue; 
+            
+            for(let x = currentDrawX; x < pitStartX; x += 15) {
+                if (x > maxDrawX) break;
+                ctx.lineTo(x, getSurfaceY(cameraX + x));
+            }
+            ctx.lineTo(pitStartX, getSurfaceY(cameraX + pitStartX));
+            
+            ctx.lineTo(pitStartX, getSurfaceY(cameraX + pitStartX) + pit.depth);
+            ctx.lineTo(Math.min(pitEndX, maxDrawX), getSurfaceY(cameraX + Math.min(pitEndX, maxDrawX)) + pit.depth);
+            ctx.lineTo(Math.min(pitEndX, maxDrawX), getSurfaceY(cameraX + Math.min(pitEndX, maxDrawX)));
+            
+            currentDrawX = pitEndX;
+        }
+
+        for(let x = currentDrawX; x <= maxDrawX; x += 15) {
+            ctx.lineTo(x, getSurfaceY(cameraX + x));
+        }
+        
+        ctx.lineTo(maxDrawX, getSurfaceY(cameraX + maxDrawX));
+        ctx.lineTo(maxDrawX, ch);
+        ctx.lineTo(0, ch);
+        ctx.fill();
+
+        ctx.fillStyle = "#000";
+        ctx.beginPath();
+        for (let g of environment.grass) {
+            let gx = g.x - cameraX;
+            if (gx > -50 && gx < maxDrawX && !getPitAt(g.x)) {
+                let gy = getSurfaceY(g.x);
+                ctx.moveTo(gx, gy + 10); 
+                ctx.lineTo(gx + 10, gy - g.height);
+                ctx.lineTo(gx + 20, gy + 10);
+            }
+        }
+        ctx.fill();
+
+        ctx.strokeStyle = "#5c4033"; 
+        ctx.lineWidth = 4;
+        for (let pit of environment.pits) {
+            let px = pit.x - cameraX;
+            if (px + pit.width < -100 || px > cw + 100) continue;
+            
+            ctx.beginPath();
+            ctx.moveTo(px - 50, pit.ropeY - 20);
+            // Adjusting rope curve dynamically to pit width
+            ctx.quadraticCurveTo(px + pit.width/2, pit.ropeY + pit.width*0.15, px + pit.width + 50, pit.ropeY - 20);
+            ctx.stroke();
+            
+            ctx.fillStyle = "#3e2723";
+            for(let i=1; i<=3; i++) {
+                ctx.beginPath();
+                ctx.arc(px + (pit.width/4)*i, pit.ropeY + 25 - Math.abs(i-2)*10, 5, 0, Math.PI*2);
+                ctx.fill();
+            }
+        }
+
+        for (let mud of environment.mud) {
+            let mx = mud.x - cameraX;
+            if (mx + mud.width < -100 || mx > cw + 100) continue;
+            
+            let my = getSurfaceY(mud.x + mud.width/2); 
+            
+            ctx.fillStyle = "#2c1e16"; 
+            ctx.beginPath();
+            ctx.ellipse(mx + mud.width/2, my + 8, mud.width/2, 12, 0, 0, Math.PI*2);
+            ctx.fill();
+            
+            ctx.fillStyle = "rgba(255,255,255,0.15)";
+            ctx.beginPath();
+            ctx.ellipse(mx + mud.width/2 + 10, my + 4, mud.width/3, 4, 0, 0, Math.PI*2);
+            ctx.fill();
+        }
+
+        ctx.fillStyle = "#000";
+        for (let bush of environment.bushes) {
+            let bx = bush.x - cameraX;
+            if (bx + bush.width < 0 || bx > cw) continue;
+            
+            ctx.beginPath();
+            let startY = getSurfaceY(bush.x) + 40; 
+            ctx.moveTo(bx, startY);
+            for(let i=1; i<=5; i++) {
+                let peakX = bx + (bush.width/5)*i - bush.width/10;
+                let peakY = getSurfaceY(bush.x + (bush.width/5)*i - bush.width/10) - bush.height - Math.random()*10;
+                let valleyX = bx + (bush.width/5)*i;
+                let valleyY = getSurfaceY(bush.x + (bush.width/5)*i) + 40; 
+                
+                ctx.lineTo(peakX, peakY);
+                ctx.lineTo(valleyX, valleyY);
+            }
+            ctx.fill();
+        }
+
+        for (let snake of environment.snakes) {
+            let sx = snake.x - cameraX;
+            if (sx + snake.width < 0 || sx > cw) continue;
+            
+            ctx.strokeStyle = "#000";
+            ctx.lineWidth = 5;
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            ctx.beginPath();
+            
+            let timeOffset = Date.now() / 200; 
+            for(let i=0; i<=snake.width; i+=5) {
+                let sy = getSurfaceY(snake.x + i); 
+                let waveY = sy - 5 + Math.sin(i*0.2 + timeOffset) * 5;
+                if(i===0) ctx.moveTo(sx + i, waveY);
+                else ctx.lineTo(sx + i, waveY);
+            }
+            ctx.stroke();
+
+            let headSy = getSurfaceY(snake.x + snake.width);
+            let headY = headSy - 5 + Math.sin(snake.width*0.2 + timeOffset) * 5;
+            ctx.beginPath();
+            ctx.arc(sx + snake.width, headY, 6, 0, Math.PI*2);
+            ctx.fill();
+            ctx.fillStyle = "red";
+            ctx.beginPath();
+            ctx.arc(sx + snake.width + 2, headY - 2, 2, 0, Math.PI*2);
+            ctx.fill();
+        }
+
+        for (let star of environment.stars) {
+            let sx = star.x - cameraX;
+            if (sx + star.size < 0 || sx > cw) continue;
+
+            ctx.shadowColor = "gold";
+            ctx.shadowBlur = 15;
+            ctx.fillStyle = "gold";
+            
+            let pulseSize = star.size + Math.sin(Date.now() / 250) * 3; 
+            
+            ctx.save();
+            ctx.translate(sx, star.y);
+            ctx.translate(0, Math.sin(Date.now()/400)*5); 
+            ctx.scale(pulseSize/15, pulseSize/15);
+            
+            ctx.beginPath();
+            ctx.moveTo(5, -15);
+            ctx.lineTo(-10, 2);
+            ctx.lineTo(2, 2);
+            ctx.lineTo(-5, 15);
+            ctx.lineTo(10, -2);
+            ctx.lineTo(-2, -2);
+            ctx.closePath();
+            ctx.fill();
+            
+            ctx.fillStyle = "white";
+            ctx.shadowBlur = 0;
+            ctx.beginPath();
+            ctx.moveTo(3, -10);
+            ctx.lineTo(-6, 2);
+            ctx.lineTo(0, 2);
+            ctx.lineTo(-3, 8);
+            ctx.lineTo(6, -2);
+            ctx.lineTo(0, -2);
+            ctx.closePath();
+            ctx.fill();
+            
+            ctx.restore();
+        }
+        ctx.shadowBlur = 0;
+
+        if (player.invulnTimer === 0 || Math.floor(Date.now() / 100) % 2 === 0) { 
+            let px = player.x - cameraX;
+            
+            let cycle = player.grounded ? player.legAngle : Math.PI/4; 
+            
+            let playerBob = player.grounded ? Math.abs(Math.sin(cycle * 2)) * 4 : 0;
+            let py = player.y - playerBob; 
+
+            if (player.glowTimer > 0) {
+                ctx.shadowColor = "gold";
+                ctx.shadowBlur = 20;
+            }
+
+            let hipX = px + 15;
+            let hipY = py + 38;
+            let shoulderX = px + 17; 
+            let shoulderY = py + 20;
+
+            let lThighRot = Math.sin(cycle) * 0.8;
+            let lCalfRot = -Math.max(0, Math.cos(cycle)) * 1.8; 
+            let rThighRot = Math.sin(cycle + Math.PI) * 0.8;
+            let rCalfRot = -Math.max(0, Math.cos(cycle + Math.PI)) * 1.8; 
+
+            let lArmRot = Math.sin(cycle + Math.PI) * 0.8;
+            let lElbowRot = 1.2 + Math.sin(cycle + Math.PI)*0.3; 
+            let rArmRot = Math.sin(cycle) * 0.8;
+            let rElbowRot = 1.2 + Math.sin(cycle)*0.3;
+
+            if (player.isSwinging) {
+                lArmRot = -Math.PI; 
+                lElbowRot = 0;
+                rArmRot = -Math.PI + 0.5;
+                rElbowRot = 0;
+            }
+
+            drawLimb(shoulderX, shoulderY, 10, lArmRot, 10, lElbowRot, 3.5, true);
+            drawLimb(hipX, hipY, 12, lThighRot, 12, lCalfRot, 4, true);
+
+            ctx.fillStyle = "#000";
+            ctx.beginPath();
+            ctx.moveTo(shoulderX - 5, shoulderY);
+            ctx.lineTo(shoulderX + 5, shoulderY);
+            ctx.lineTo(hipX + 5, hipY);
+            ctx.lineTo(hipX - 3, hipY);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.arc(shoulderX + 2, py + 8, 9, 0, Math.PI*2);
+            ctx.fill();
+            ctx.fillRect(shoulderX + 2, py, 14, 4); 
+            
+            ctx.fillStyle = "#fff";
+            ctx.beginPath();
+            ctx.arc(shoulderX + 6, py + 6, 2, 0, Math.PI*2);
+            ctx.fill();
+
+            drawLimb(hipX, hipY, 12, rThighRot, 12, rCalfRot, 4.5);
+            drawLimb(shoulderX, shoulderY, 10, rArmRot, 10, rElbowRot, 4);
+
+            ctx.shadowBlur = 0; 
+
+            if (player.mudSlowTimer > 0) {
+                ctx.fillStyle = "white";
+                ctx.font = "bold 20px Arial";
+                ctx.textAlign = "center";
+                ctx.shadowColor = "#8b4513";
+                ctx.shadowBlur = 5;
+                let secondsLeft = Math.ceil(player.mudSlowTimer / 60);
+                ctx.fillText(`Slowed ${secondsLeft}s`, px, py - 30);
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        let cx = chaser.x - cameraX;
+        if (cx > -chaser.width) {
+            let runCycle = chaser.grounded ? Date.now() / 100 * (chaser.speed/4) : Math.PI/4; 
+            let beastBob = chaser.grounded ? Math.abs(Math.sin(runCycle * 2)) * 6 : 0;
+            let by = chaser.y - 45 - beastBob; 
+            let wLength = 90; 
+            
+            let gradBeast = ctx.createRadialGradient(cx + wLength/2, by, 10, cx + wLength/2, by, chaser.width*0.8);
+            gradBeast.addColorStop(0, "rgba(0,0,0,0.5)");
+            gradBeast.addColorStop(1, "rgba(0,0,0,0)");
+            ctx.fillStyle = gradBeast;
+            ctx.shadowBlur = 0; 
+            ctx.fillRect(cx - 50, by - 80, chaser.width*2, chaser.height*2);
+
+            if (chaser.glowTimer > 0) {
+                ctx.shadowColor = "gold";
+                ctx.shadowBlur = 30;
+            }
+
+            let backHipX = cx + 20;
+            let frontShoulderX = cx + wLength - 10;
+            
+            let blThigh = Math.sin(runCycle) * 0.6 + 0.2;
+            let blCalf = Math.max(0, Math.sin(runCycle - 1)) * 0.8;
+            let brThigh = Math.sin(runCycle + 0.5) * 0.6 + 0.2;
+            let brCalf = Math.max(0, Math.sin(runCycle - 0.5)) * 0.8;
+
+            let flThigh = Math.sin(runCycle + Math.PI) * 0.6 - 0.2;
+            let flCalf = -Math.max(0, -Math.sin(runCycle + Math.PI - 1)) * 0.8; 
+            let frThigh = Math.sin(runCycle + Math.PI + 0.5) * 0.6 - 0.2;
+            let frCalf = -Math.max(0, -Math.sin(runCycle + Math.PI - 0.5)) * 0.8; 
+
+            if (!chaser.grounded) {
+                blThigh = 1; blCalf = 1; brThigh = 1.2; brCalf = 1;
+                flThigh = -1; flCalf = 0.5; frThigh = -0.8; frCalf = 0.5;
+            }
+
+            drawLimb(backHipX, by + 5, 20, blThigh, 18, blCalf, 6, true);
+            drawLimb(backHipX, by + 5, 20, brThigh, 18, brCalf, 7);
+
+            drawLimb(frontShoulderX, by + 10, 18, flThigh, 15, flCalf, 5, true);
+            drawLimb(frontShoulderX, by + 10, 18, frThigh, 15, frCalf, 6);
+
+            ctx.fillStyle = "#000";
+            ctx.beginPath();
+            ctx.moveTo(backHipX - 10, by); 
+            ctx.quadraticCurveTo(cx + wLength/2, by - 15, frontShoulderX + 15, by - 5); 
+            ctx.quadraticCurveTo(frontShoulderX + 5, by + 15, cx + wLength/2, by + 15); 
+            ctx.quadraticCurveTo(backHipX, by + 15, backHipX - 10, by); 
+            ctx.fill();
+
+            let tailSwing = Math.sin(runCycle) * 0.3;
+            ctx.beginPath();
+            ctx.moveTo(backHipX - 8, by - 5);
+            ctx.quadraticCurveTo(backHipX - 30, by - 20 + tailSwing*20, backHipX - 40, by + 10);
+            ctx.quadraticCurveTo(backHipX - 20, by, backHipX - 5, by + 5);
+            ctx.fill();
+
+            let headX = frontShoulderX + 15;
+            let headY = by - 15 + (Math.sin(runCycle*2)*2); 
+            
+            ctx.beginPath();
+            ctx.arc(headX, headY, 15, 0, Math.PI*2); 
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(headX + 5, headY - 5);
+            ctx.lineTo(headX + 35, headY + 5); 
+            ctx.lineTo(headX + 5, headY + 12); 
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(headX - 5, headY - 10);
+            ctx.lineTo(headX - 10, headY - 30);
+            ctx.lineTo(headX + 5, headY - 12);
+            ctx.fill();
+
+            ctx.shadowBlur = 0; 
+
+            ctx.fillStyle = "red";
+            ctx.shadowColor = "red";
+            ctx.shadowBlur = 15;
+            ctx.beginPath();
+            ctx.ellipse(headX + 10, headY - 2, 4, 2, Math.PI/6, 0, Math.PI*2);
+            ctx.fill();
+            ctx.shadowBlur = 0; 
+        }
+
+        let currentOverPit = environment.pits.find(p => player.x > p.x && player.x < p.x + p.width);
+        if (currentOverPit && player.y > groundY + 10 && !player.isSwinging) {
+            ctx.fillStyle = "white";
+            ctx.font = "bold 40px Arial";
+            ctx.textAlign = "center";
+            ctx.shadowColor = "red";
+            ctx.shadowBlur = 10;
+            ctx.fillText(`TAP JUMP: ${player.pitEscapeTaps} / 5`, cw/2, ch/2 - 100);
+            ctx.shadowBlur = 0;
+        }
+    }
+
+    function gameLoop(timestamp) {
+        if (!lastTime) lastTime = timestamp;
+        const deltaTime = timestamp - lastTime;
+        lastTime = timestamp;
+
+        if (gameState === 'playing' || gameState === 'winning_scene') {
+            update();
+        }
+        
+        render(); 
+
+        if (gameState === 'playing' || gameState === 'tutorial' || gameState === 'winning_scene') {
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+    }
+
+    async function startGame(event) {
+        if (event) event.stopPropagation();
+        if (isGameStarting) return;
+        isGameStarting = true;
+        primeSfx();
+        
+        if (document.activeElement) {
+            document.activeElement.blur();
+        }
+
+        keys.left = false;
+        keys.right = false;
+        keys.up = false;
+        gameState = 'loading';
+        startScreen.classList.add('hidden');
+        gameOverScreen.classList.add('hidden');
+        winScreen.classList.add('hidden');
+        tutorialPopup.classList.add('hidden');
+        loadingScreen.classList.remove('hidden');
+        playButton.disabled = true;
+        chaserWarning.style.opacity = 0;
+        chaserWarningShownInRange = false;
+        if (chaserWarningTimeoutId) {
+            clearTimeout(chaserWarningTimeoutId);
+            chaserWarningTimeoutId = null;
+        }
+
+        try {
+            cancelAnimationFrame(animationFrameId);
+            setLoadingProgress(0, "Initializing run...");
+            await waitForNextFrame();
+            
+            initEntities();
+            await generateLevel();
+            
+            loadingScreen.classList.add('hidden');
+            gameState = 'playing';
+            lastTime = 0;
+            animationFrameId = requestAnimationFrame(gameLoop);
+        } catch (err) {
+            console.error("Map loading failed:", err);
+            loadingStatus.innerText = "Loading failed. Tap RUN again.";
+            startScreen.classList.remove('hidden');
+            loadingScreen.classList.add('hidden');
+            gameState = 'start';
+        } finally {
+            playButton.disabled = false;
+            isGameStarting = false;
+        }
+    }
+
+    function endGame(result, reason) {
+        gameState = result;
+        cancelAnimationFrame(animationFrameId);
+        
+        if (result === 'lose') {
+            document.getElementById('finalScore1').innerText = score;
+            deathReason.innerText = reason;
+            gameOverScreen.classList.remove('hidden');
+        } else if (result === 'win') {
+            score += 5000;
+            document.getElementById('finalScore2').innerText = score;
+            winScreen.classList.remove('hidden');
+        }
+    }
+
+    function resetGame(event) {
+        startGame(event);
+    }
+
+    ctx.fillStyle = "#111";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);

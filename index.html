@@ -565,6 +565,85 @@
     const STAR_HIGH_MAX_HEIGHT_ABOVE_GROUND = 130;
     const STAR_HIGH_CHANCE = 0.35; // Some boosts require a jump to collect.
     const STAR_PLAYER_PICKUP_EXTRA_RADIUS = 8;
+    const BGM_CONFIG = {
+        path: 'assets/background.mp3',
+        volume: 0.4
+    };
+    const SFX_CONFIG = {
+        damage: { path: 'assets/damaged.mp3', volume: 0.9, cooldownMs: 120 },
+        jump: { path: 'assets/jump.mp3', volume: 0.75, cooldownMs: 80 },
+        animalBoost: { path: 'assets/animal.mp3', volume: 0.9, cooldownMs: 120 },
+        playerBoost: { path: 'assets/boostcollect.mp3', volume: 0.85, cooldownMs: 120 },
+        gameOver: { path: 'assets/gameover.mp3', volume: 0.9, cooldownMs: 300 }
+    };
+    let bgmAudio = null;
+    let bgmPrimed = false;
+    const sfxBank = {};
+    const sfxLastPlayed = {};
+    let sfxPrimed = false;
+
+    function initBackgroundMusic() {
+        bgmAudio = new Audio(BGM_CONFIG.path);
+        bgmAudio.loop = true;
+        bgmAudio.preload = 'auto';
+        bgmAudio.volume = BGM_CONFIG.volume;
+    }
+
+    function primeBackgroundMusic() {
+        if (bgmPrimed || !bgmAudio) return;
+        bgmPrimed = true;
+        bgmAudio.load();
+    }
+
+    function startBackgroundMusic(resetTrack = false) {
+        if (!bgmAudio) return;
+        if (resetTrack) {
+            bgmAudio.currentTime = 0;
+        }
+        bgmAudio.play().catch(() => {
+            // Ignore autoplay restrictions and continue gameplay.
+        });
+    }
+
+    function stopBackgroundMusic() {
+        if (!bgmAudio) return;
+        bgmAudio.pause();
+    }
+
+    function initSfx() {
+        for (const [key, config] of Object.entries(SFX_CONFIG)) {
+            const audio = new Audio(config.path);
+            audio.preload = 'auto';
+            sfxBank[key] = audio;
+        }
+    }
+
+    function primeSfx() {
+        if (sfxPrimed) return;
+        sfxPrimed = true;
+        for (const audio of Object.values(sfxBank)) {
+            audio.load();
+        }
+    }
+
+    function playSfx(key) {
+        const config = SFX_CONFIG[key];
+        const baseAudio = sfxBank[key];
+        if (!config || !baseAudio) return;
+
+        const now = performance.now();
+        const last = sfxLastPlayed[key] || 0;
+        if (now - last < config.cooldownMs) return;
+        sfxLastPlayed[key] = now;
+
+        const clip = baseAudio.cloneNode();
+        clip.volume = config.volume;
+        clip.play().catch(() => {
+            // Ignore autoplay restrictions and continue gameplay.
+        });
+    }
+    initBackgroundMusic();
+    initSfx();
 
     function waitForNextFrame() {
         return new Promise(resolve => requestAnimationFrame(resolve));
@@ -865,6 +944,7 @@
             if (player.mudSlowTimer === 0 && player.grounded && player.x > mud.x && player.x < mud.x + mud.width) {
                 player.mudSlowTimer = 180; 
                 createFloatingText("Mud! Slowed 3s!", player.x, player.y - 40, "#8b4513");
+                playSfx('damage');
             }
         }
 
@@ -886,6 +966,7 @@
                 chaser.glowTimer = CHASER_BOOST_FRAMES; 
                 
                 createFloatingText("Beast 2x Speed!", Math.max(50, player.x), ch/2, "#ff4444");
+                playSfx('animalBoost');
                 continue;
             }
 
@@ -900,6 +981,7 @@
                 environment.stars.splice(i, 1);
                 updateHUD();
                 createFloatingText("+Speed!", star.x, star.y, "gold");
+                playSfx('playerBoost');
             }
         }
 
@@ -909,6 +991,7 @@
                 if (player.slowTimer === 0) {
                     player.slowTimer = 90; 
                     createFloatingText("Slowed!", player.x, player.y - 20, "#aaa");
+                    playSfx('damage');
                 }
             }
         }
@@ -919,6 +1002,7 @@
                 player.invulnTimer = 60; 
                 player.slowTimer = 120; 
                 createFloatingText("Poison! Speed Down!", player.x, player.y - 40, "#4caf50");
+                playSfx('damage');
             }
         }
     }
@@ -973,6 +1057,7 @@
             chaser.glowTimer = CHASER_BOOST_FRAMES;
             chaser.autoBoostTimer = 1500; // Reset to 25 seconds
             createFloatingText("Auto Boost!", Math.max(50, player.x), ch/2, "#ff4444");
+            playSfx('animalBoost');
         }
 
         if (!tutorials.coinSeen && environment.stars.length > 0) {
@@ -1035,20 +1120,24 @@
         player.upPrev = keys.up;
 
         if (jumpTriggered) {
+            let didJump = false;
             if (trappedInPit && !player.isSwinging) {
                 player.pitEscapeTaps++;
                 if (player.pitEscapeTaps >= 5) {
                     player.vy = -16; 
                     player.pitEscapeTaps = 0;
                     player.grounded = false;
+                    didJump = true;
                 }
             } else if (player.grounded && !player.isSwinging) {
                 player.vy = player.jumpPower;
                 player.grounded = false;
                 player.doubleJumpUsed = false;
+                didJump = true;
             } else if (!player.grounded && inPitZone && !player.doubleJumpUsed && !player.isSwinging) {
                 player.vy = player.jumpPower * 0.9;
                 player.doubleJumpUsed = true;
+                didJump = true;
                 
                 if (player.y < inPitZone.ropeY + 80) {
                     player.isSwinging = true;
@@ -1057,6 +1146,10 @@
                     player.vy = 0;
                     createFloatingText("Swinging!", player.x, player.y - 50, "white");
                 }
+            }
+
+            if (didJump) {
+                playSfx('jump');
             }
         }
 
@@ -1492,7 +1585,7 @@
             ctx.beginPath();
             let timeOffset = Date.now() / 20; 
             for(let i=0; i<150; i++) {
-                let rx = (i * 30 + timeOffset * 8) % (cw + 200) - 100;
+                let rx = ((i * 30 - timeOffset * 8) % (cw + 200) + (cw + 200)) % (cw + 200) - 100;
                 let ry = (Math.sin(i * 123) * ch + timeOffset * 25) % (ch + 100) - 50;
                 ctx.moveTo(rx, ry);
                 ctx.lineTo(rx - 15, ry + 30); 
@@ -1905,6 +1998,9 @@
         if (event) event.stopPropagation();
         if (isGameStarting) return;
         isGameStarting = true;
+        primeBackgroundMusic();
+        primeSfx();
+        startBackgroundMusic(true);
         
         if (document.activeElement) {
             document.activeElement.blur();
@@ -1945,6 +2041,7 @@
             startScreen.classList.remove('hidden');
             loadingScreen.classList.add('hidden');
             gameState = 'start';
+            stopBackgroundMusic();
         } finally {
             playButton.disabled = false;
             isGameStarting = false;
@@ -1954,11 +2051,13 @@
     function endGame(result, reason) {
         gameState = result;
         cancelAnimationFrame(animationFrameId);
+        stopBackgroundMusic();
         
         if (result === 'lose') {
             document.getElementById('finalScore1').innerText = score;
             deathReason.innerText = reason;
             gameOverScreen.classList.remove('hidden');
+            playSfx('gameOver');
         } else if (result === 'win') {
             score += 5000;
             document.getElementById('finalScore2').innerText = score;
