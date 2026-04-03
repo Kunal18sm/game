@@ -1,4 +1,421 @@
-﻿
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Escape to the Waterfall</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Creepster&family=Roboto:wght@700&display=swap');
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000; /* Grey gap fix ke liye background pure black kiya */
+            overflow: hidden;
+            font-family: 'Roboto', sans-serif;
+            touch-action: none; /* Prevent pull-to-refresh on mobile */
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: optimizeSpeed;
+        }
+
+        /* Landscape Warning Overlay */
+        #landscape-warning {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; color: #fff; z-index: 9999;
+            flex-direction: column; justify-content: center; align-items: center;
+            font-size: 24px; text-align: center; padding: 20px;
+            box-sizing: border-box;
+        }
+
+        /* Enforce Landscape on Mobile */
+        @media screen and (orientation: portrait) {
+            #landscape-warning {
+                display: flex !important;
+            }
+        }
+
+        /* UI Overlays */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; 
+        }
+
+        /* Top HUD */
+        .hud-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            text-shadow: 2px 2px 0 #000;
+        }
+
+        .score-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: white;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .coin-icon {
+            width: 25px;
+            height: 35px;
+            background-color: gold;
+            clip-path: polygon(55% 0%, 0% 55%, 35% 55%, 20% 100%, 100% 35%, 55% 35%);
+            filter: drop-shadow(0 0 5px rgba(255, 215, 0, 0.8));
+        }
+
+        /* Progress Bar */
+        .progress-container {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            max-width: 40vw;
+            height: 10px;
+            background: rgba(0,0,0,0.5);
+            border: 2px solid #555;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #4caf50, #8bc34a);
+            transition: width 0.2s;
+        }
+
+        /* Touch Controls (Moved Higher for mobile thumbs) */
+        .controls {
+            position: absolute;
+            bottom: 60px;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 40px;
+            box-sizing: border-box;
+            pointer-events: none;
+            align-items: flex-end;
+        }
+
+        .control-group {
+            display: flex;
+            gap: 20px;
+            align-items: flex-end;
+        }
+
+        .btn {
+            width: 70px;
+            height: 70px;
+            background-color: rgba(255, 255, 255, 0.2);
+            border: 3px solid rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto; /* Enable touch */
+            user-select: none;
+            -webkit-user-select: none;
+            transition: background-color 0.1s;
+            cursor: pointer;
+        }
+
+        /* Jump button is bigger! */
+        #btnJump {
+            width: 95px;
+            height: 95px;
+        }
+        #btnJump svg {
+            width: 55px;
+            height: 55px;
+        }
+
+        .btn:active, .btn.active {
+            background-color: rgba(255, 255, 255, 0.6);
+        }
+
+        .btn svg {
+            width: 40px;
+            height: 40px;
+            fill: white;
+            pointer-events: none;
+        }
+
+        /* Screens (Menu, Game Over, Win) */
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            text-align: center;
+            transition: opacity 0.3s;
+            pointer-events: auto;
+        }
+
+        .hidden {
+            opacity: 0;
+            pointer-events: none !important;
+        }
+
+        .title {
+            font-family: 'Creepster', cursive;
+            font-size: clamp(40px, 6vw, 60px);
+            margin-bottom: 10px;
+            text-shadow: 0 0 20px #fff;
+        }
+
+        .subtitle {
+            font-size: clamp(14px, 2vw, 18px);
+            max-width: 600px;
+            margin-bottom: 30px;
+            line-height: 1.5;
+            color: #aaa;
+            padding: 0 10px;
+        }
+
+        .mechanic-desc {
+            text-align: left;
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: clamp(12px, 1.5vw, 16px);
+        }
+        .mechanic-desc p { margin: 5px 0; }
+        .highlight-yellow { color: gold; font-weight: bold; }
+        .highlight-red { color: #ff4444; font-weight: bold; }
+        .highlight-blue { color: #44aaff; font-weight: bold; }
+
+        .play-btn {
+            background: #fff;
+            color: #000;
+            border: none;
+            padding: 15px 40px;
+            font-size: 24px;
+            font-weight: bold;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 0 15px rgba(255,255,255,0.5);
+            transition: transform 0.2s;
+        }
+        .play-btn:hover {
+            transform: scale(1.1);
+        }
+        .play-btn:disabled {
+            opacity: 0.6;
+            cursor: wait;
+            transform: none;
+        }
+
+        .loading-track {
+            width: min(420px, 80vw);
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.7);
+            border-radius: 999px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.12);
+            margin-top: 10px;
+        }
+        .loading-fill {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #ffd54f, #ff9800);
+            transition: width 0.15s linear;
+        }
+        .loading-status {
+            color: #ddd;
+            margin-top: 14px;
+            font-size: clamp(14px, 2.2vw, 18px);
+            min-height: 24px;
+            letter-spacing: 0.3px;
+        }
+
+        /* Warning UI */
+        #chaser-warning {
+            position: absolute;
+            left: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: red;
+            font-size: 40px;
+            font-weight: bold;
+            opacity: 0;
+            text-shadow: 0 0 10px red;
+            animation: pulse 1s infinite alternate;
+            pointer-events: none;
+        }
+        @keyframes pulse {
+            from { transform: translateY(-50%) scale(1); }
+            to { transform: translateY(-50%) scale(1.2); }
+        }
+
+        /* Floating texts */
+        .floating-text {
+            position: absolute;
+            color: white;
+            font-weight: bold;
+            pointer-events: none;
+            animation: floatUp 1s ease-out forwards;
+            text-shadow: 1px 1px 0 #000;
+        }
+        @keyframes floatUp {
+            0% { transform: translateY(0); opacity: 1; }
+            100% { transform: translateY(-50px); opacity: 0; }
+        }
+
+        /* Tutorial Popup */
+        #tutorialPopup {
+            position: absolute;
+            background: rgba(0,0,0,0.9);
+            border: 2px solid gold;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 100;
+            width: 250px;
+            box-shadow: 0 0 20px rgba(255,215,0,0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            transform: translate(-50%, -100%);
+            margin-top: -20px;
+            pointer-events: auto;
+            text-align: center;
+            font-size: 16px;
+        }
+        #tutorialPopup::after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 10px 10px 0;
+            border-style: solid;
+            border-color: gold transparent transparent transparent;
+            display: block;
+            width: 0;
+        }
+        .tut-title { font-weight: bold; color: gold; font-size: 20px; }
+        .tut-btn {
+            background: gold; color: black; border: none; padding: 8px; 
+            font-weight: bold; cursor: pointer; border-radius: 5px; margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="landscape-warning">
+        <h2>Rotate Your Phone! 🔄</h2>
+        <p>This game is best played in Landscape mode.</p>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui-layer">
+        <div class="hud-container">
+            <div class="score-row">
+                <div class="coin-icon"></div>
+                <span id="scoreText">0</span>
+            </div>
+        </div>
+
+        <div class="progress-container">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+
+        <div id="chaser-warning">!</div>
+
+        <!-- Tutorial Popup Element -->
+        <div id="tutorialPopup" class="hidden">
+            <div class="tut-title" id="tutTitle">Title</div>
+            <div id="tutText">Text</div>
+            <button class="tut-btn" onclick="resumeTutorial()">Got it!</button>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <div class="btn" id="btnLeft">
+                    <svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>
+                </div>
+                <div class="btn" id="btnRight">
+                    <svg viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg>
+                </div>
+            </div>
+            <div class="control-group">
+                <div class="btn" id="btnJump">
+                    <svg viewBox="0 0 24 24"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Start Screen -->
+    <div id="startScreen" class="screen">
+        <div class="title">Escape to the Waterfall!</div>
+        <div class="subtitle">
+            A terrifying shadow beast is hunting you. Tap anywhere to enter FULLSCREEN and RUN!
+        </div>
+        <div class="mechanic-desc">
+            <p><span class="highlight-yellow">⚡ Speed Bolts:</span> Collect for 3s boost. If already boosted, each new bolt adds +1s. Miss them, beast gets 4s boost! Beast also auto-boosts every 25s.</p>
+            <p><span class="highlight-red">▲ Obstacles (Bushes/Snakes):</span> Touching them slows you down drastically.</p>
+            <p><span style="color:#8b4513; font-weight:bold;">● Mud (Starts at 5k):</span> Slows you down heavily for 3 SECONDS!</p>
+            <p><span class="highlight-blue">♒ Waterfall:</span> The goal is 50,000 meters away.</p>
+        </div>
+        <button class="play-btn" id="playButton" onclick="startGame(event)">RUN!</button>
+    </div>
+
+    <!-- Loading Screen -->
+    <div id="loadingScreen" class="screen hidden">
+        <div class="title">Preparing Map...</div>
+        <div class="subtitle">World is loading once before the run starts.</div>
+        <div class="loading-track">
+            <div class="loading-fill" id="loadingFill"></div>
+        </div>
+        <div class="loading-status" id="loadingStatus">Initializing...</div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameOverScreen" class="screen hidden">
+        <div class="title" style="color: #ff4444;">YOU DIED</div>
+        <div class="subtitle" id="deathReason">The beast caught you...</div>
+        <div style="margin-bottom: 20px; font-size: 24px;">Score: <span id="finalScore1" class="highlight-yellow">0</span></div>
+        <button class="play-btn" onclick="resetGame(event)">Play Again</button>
+    </div>
+
+    <!-- Win Screen -->
+    <div id="winScreen" class="screen hidden">
+        <div class="title" style="color: #4caf50;">ESCAPED!</div>
+        <div class="subtitle">You reached the waterfall! The beast cannot cross water.</div>
+        <div style="margin-bottom: 20px; font-size: 24px;">Score: <span id="finalScore2" class="highlight-yellow">0</span></div>
+        <button class="play-btn" onclick="navigateHome(event)">Home</button>
+        <button class="play-btn" onclick="resetGame(event)">Play Again</button>
+    </div>
+
+<script>
     // --- FULLSCREEN & LANDSCAPE LOCK LOGIC ---
     function makeFullscreen() {
         if (window.parent && window.parent !== window) {
@@ -1670,4 +2087,6 @@
 
     ctx.fillStyle = "#111";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
+</script>
+</body>
+</html>

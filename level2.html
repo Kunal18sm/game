@@ -1,0 +1,2004 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Escape the Shark!</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Creepster&family=Roboto:wght@700&display=swap');
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000; 
+            overflow: hidden;
+            font-family: 'Roboto', sans-serif;
+            touch-action: none; 
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: optimizeSpeed;
+        }
+
+        #landscape-warning {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; color: #fff; z-index: 9999;
+            flex-direction: column; justify-content: center; align-items: center;
+            font-size: 24px; text-align: center; padding: 20px;
+            box-sizing: border-box;
+        }
+
+        @media screen and (orientation: portrait) {
+            #landscape-warning {
+                display: flex !important;
+            }
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; 
+        }
+
+        .hud-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            text-shadow: 2px 2px 0 #000;
+        }
+
+        .score-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: white;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .coin-icon {
+            width: 25px;
+            height: 25px;
+            background-color: gold;
+            border-radius: 50%;
+            box-shadow: inset -5px -5px 10px rgba(0,0,0,0.5), 0 0 10px gold;
+        }
+
+        .progress-container {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            max-width: 40vw;
+            height: 10px;
+            background: rgba(0,0,0,0.5);
+            border: 2px solid #555;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 5px;
+        }
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #4caf50, #8bc34a);
+            transition: width 0.2s;
+        }
+
+        .oxygen-container {
+            position: absolute;
+            top: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 250px;
+            max-width: 35vw;
+            height: 15px;
+            background: rgba(0,0,0,0.6);
+            border: 2px solid #00f;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 0 10px rgba(0, 150, 255, 0.5);
+        }
+        .oxygen-bar {
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, #00bfff, #00ffff);
+            transition: width 0.1s, background 0.3s;
+        }
+        .oxygen-low {
+            background: linear-gradient(90deg, #ff0000, #ff4444) !important;
+            animation: blink 0.5s infinite;
+        }
+
+        .controls {
+            position: absolute;
+            bottom: 60px;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 40px;
+            box-sizing: border-box;
+            pointer-events: none;
+            align-items: flex-end;
+        }
+
+        .control-group {
+            display: flex;
+            gap: 20px;
+            align-items: flex-end;
+        }
+
+        .btn {
+            width: 70px;
+            height: 70px;
+            background-color: rgba(0, 150, 255, 0.2);
+            border: 3px solid rgba(0, 150, 255, 0.5);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto; 
+            user-select: none;
+            -webkit-user-select: none;
+            transition: background-color 0.1s;
+            cursor: pointer;
+        }
+
+        #btnJump {
+            width: 95px;
+            height: 95px;
+            background-color: rgba(0, 200, 255, 0.3);
+        }
+        #btnJump svg {
+            width: 55px;
+            height: 55px;
+        }
+
+        .btn:active, .btn.active {
+            background-color: rgba(0, 200, 255, 0.6);
+        }
+
+        .btn svg {
+            width: 40px;
+            height: 40px;
+            fill: white;
+            pointer-events: none;
+        }
+
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 20, 40, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            text-align: center;
+            transition: opacity 0.3s;
+            pointer-events: auto;
+        }
+
+        .hidden {
+            opacity: 0;
+            pointer-events: none !important;
+        }
+
+        .title {
+            font-family: 'Creepster', cursive;
+            font-size: clamp(40px, 6vw, 60px);
+            margin-bottom: 10px;
+            text-shadow: 0 0 20px #00f;
+            color: #00ffff;
+        }
+
+        .subtitle {
+            font-size: clamp(14px, 2vw, 18px);
+            max-width: 600px;
+            margin-bottom: 30px;
+            line-height: 1.5;
+            color: #88ccff;
+            padding: 0 10px;
+        }
+
+        .mechanic-desc {
+            text-align: left;
+            background: rgba(0,50,100,0.5);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: clamp(12px, 1.5vw, 16px);
+            border: 1px solid #00aaff;
+        }
+        .mechanic-desc p { margin: 5px 0; }
+        .highlight-yellow { color: gold; font-weight: bold; }
+        .highlight-red { color: #ff4444; font-weight: bold; }
+        .highlight-blue { color: #00ffff; font-weight: bold; }
+        .highlight-purple { color: #cc66ff; font-weight: bold; }
+
+        .play-btn {
+            background: #00ffff;
+            color: #000;
+            border: none;
+            padding: 15px 40px;
+            font-size: 24px;
+            font-weight: bold;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 0 20px rgba(0,255,255,0.6);
+            transition: transform 0.2s;
+        }
+        .play-btn:hover {
+            transform: scale(1.1);
+        }
+
+        #chaser-warning {
+            position: absolute;
+            left: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: red;
+            font-size: 40px;
+            font-weight: bold;
+            opacity: 0;
+            text-shadow: 0 0 10px red;
+            animation: pulse 1s infinite alternate;
+            pointer-events: none;
+        }
+
+        #damage-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,0,0,0.3);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        @keyframes pulse {
+            from { transform: translateY(-50%) scale(1); opacity: 0.5; }
+            to { transform: translateY(-50%) scale(1.2); opacity: 1; }
+        }
+
+        @keyframes blink {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .floating-text {
+            position: absolute;
+            color: white;
+            font-weight: bold;
+            pointer-events: none;
+            animation: floatUp 1s ease-out forwards;
+            text-shadow: 1px 1px 0 #000;
+            z-index: 10;
+        }
+        @keyframes floatUp {
+            0% { transform: translateY(0); opacity: 1; }
+            100% { transform: translateY(-50px); opacity: 0; }
+        }
+
+        #tutorialPopup {
+            position: absolute;
+            background: rgba(0,20,40,0.9);
+            border: 2px solid #00aaff;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 100;
+            width: 250px;
+            box-shadow: 0 0 20px rgba(0,150,255,0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            transform: translate(-50%, -100%);
+            margin-top: -20px;
+            pointer-events: auto;
+            text-align: center;
+            font-size: 16px;
+        }
+        #tutorialPopup::after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 10px 10px 0;
+            border-style: solid;
+            border-color: #00aaff transparent transparent transparent;
+            display: block;
+            width: 0;
+        }
+        .tut-title { font-weight: bold; color: #00ffff; font-size: 20px; }
+        .tut-btn {
+            background: #00ffff; color: black; border: none; padding: 8px; 
+            font-weight: bold; cursor: pointer; border-radius: 5px; margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="landscape-warning">
+        <h2>Rotate Your Phone! 🔄</h2>
+        <p>This game is best played in Landscape mode.</p>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="damage-overlay"></div>
+
+    <div id="ui-layer">
+        <div class="hud-container">
+            <div class="score-row">
+                <div class="coin-icon"></div>
+                <span id="scoreText">0</span>
+            </div>
+        </div>
+
+        <div class="progress-container">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+
+        <div class="oxygen-container">
+            <div class="oxygen-bar" id="oxygenBar"></div>
+        </div>
+
+        <div id="chaser-warning">!</div>
+
+        <div id="tutorialPopup" class="hidden">
+            <div class="tut-title" id="tutTitle">Title</div>
+            <div id="tutText">Text</div>
+            <button class="tut-btn" onclick="resumeTutorial()">Got it!</button>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <div class="btn" id="btnLeft">
+                    <svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>
+                </div>
+                <div class="btn" id="btnRight">
+                    <svg viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg>
+                </div>
+            </div>
+            <div class="control-group">
+                <div class="btn" id="btnJump">
+                    <svg viewBox="0 0 24 24"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></svg>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Start Screen -->
+    <div id="startScreen" class="screen">
+        <div class="title">Escape the Deep!</div>
+        <div class="subtitle">
+            A hungry Great White Shark is hunting you. Swim to the island to survive!
+        </div>
+        <div class="mechanic-desc">
+            <p><span class="highlight-blue">🌊 Swim Up (Up Arrow/Tap):</span> Tairne ke liye dabayein. Chhodne par aap neeche dubenge.</p>
+            <p><span class="highlight-yellow">💨 Pearls (Speed):</span> Collect for 2s boost. Shark auto-boosts every 25s.</p>
+            <p><span style="color:#00ff00; font-weight:bold;">🌿 Obstacles:</span> Seaweeds, Fishes & Crocs (at surface) will harm you.</p>
+            <p><span class="highlight-purple">🦑 Giant Octopus (After 40%):</span> Shoots black ink. Blinds you temporarily!</p>
+            <p><span class="highlight-red">🫧 OXYGEN:</span> Har 30 sec mein satah (Surface) par aakar saans leni hogi!</p>
+        </div>
+        <button class="play-btn" id="playButton" onclick="startGame(event)">DIVE IN!</button>
+        <div id="levelLockNote" style="margin-top:10px;color:#ff8888;font-weight:bold;display:none;">
+            Level 2 is locked. Please complete Level 1 first.
+        </div>
+    </div>
+
+    <div id="gameOverScreen" class="screen hidden">
+        <div class="title" style="color: #ff4444;">YOU DIED</div>
+        <div class="subtitle" id="deathReason">The Shark caught you...</div>
+        <div style="margin-bottom: 20px; font-size: 24px;">Score: <span id="finalScore1" class="highlight-yellow">0</span></div>
+        <button class="play-btn" onclick="resetGame(event)">Try Again</button>
+    </div>
+
+    <div id="winScreen" class="screen hidden">
+        <div class="title" style="color: #4caf50;">ESCAPED!</div>
+        <div class="subtitle">You reached the island and returned to land!</div>
+        <div style="margin-bottom: 20px; font-size: 24px;">Score: <span id="finalScore2" class="highlight-yellow">0</span></div>
+        <button class="play-btn" onclick="resetGame(event)">Play Again</button>
+    </div>
+
+<script>
+    function makeFullscreen() {
+        if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'missiongame:request-fullscreen' }, '*');
+            return;
+        }
+
+        let elem = document.documentElement;
+        if (elem.requestFullscreen) {
+            elem.requestFullscreen().catch(err => console.log(err));
+        } else if (elem.webkitRequestFullscreen) { 
+            elem.webkitRequestFullscreen();
+        } else if (elem.msRequestFullscreen) { 
+            elem.msRequestFullscreen();
+        }
+        if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock('landscape').catch(err => console.log(err));
+        }
+    }
+
+    document.body.addEventListener('click', () => { makeFullscreen(); });
+
+    function navigateHome() {
+        if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'missiongame:navigate', page: 'home' }, '*');
+            return;
+        }
+        window.location.href = 'index.html';
+    }
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const uiLayer = document.getElementById('ui-layer');
+
+    const scoreText = document.getElementById('scoreText');
+    const progressBar = document.getElementById('progressBar');
+    const oxygenBar = document.getElementById('oxygenBar');
+    const chaserWarning = document.getElementById('chaser-warning');
+    const tutorialPopup = document.getElementById('tutorialPopup');
+    const damageOverlay = document.getElementById('damage-overlay');
+    
+    const startScreen = document.getElementById('startScreen');
+    const gameOverScreen = document.getElementById('gameOverScreen');
+    const winScreen = document.getElementById('winScreen');
+    const deathReason = document.getElementById('deathReason');
+    const playButton = document.getElementById('playButton');
+    const levelLockNote = document.getElementById('levelLockNote');
+
+    // --- GAME STATE VARIABLES ---
+    let cw, ch;
+    let seabedY; 
+    const SURFACE_Y = 120; 
+    const MAX_OXYGEN = 1800; 
+
+    let player = null;
+    let chaser = null;
+    let dragon = null; 
+    let environment = { pearls: [], seaweeds: [], fishes: [], bubbles: [], crocs: [], octopuses: [], inkBalls: [], endTrees: [], treesFar: [], treesMid: [], treesNear: [] };
+    let gameState = 'start'; 
+    let cameraX = 0;
+    let score = 0;
+    let oxygen = MAX_OXYGEN;
+    let animationFrameId;
+    let lastTime = 0;
+    let frameCount = 0;
+    let frameTimeMs = performance.now();
+    
+    let tutorials = { coinSeen: false, obstacleSeen: false, oxygenSeen: false };
+    const keys = { left: false, right: false, up: false };
+
+    // Mobile Zoom-Out Logic
+    function resize() {
+        let actualWidth = window.innerWidth;
+        let actualHeight = window.innerHeight;
+
+        if (actualWidth < 900) {
+            let targetWidth = 1200; 
+            let aspect = actualHeight / actualWidth;
+            cw = targetWidth;
+            ch = targetWidth * aspect; 
+        } else {
+            cw = actualWidth;
+            ch = actualHeight;
+        }
+
+        canvas.width = cw;
+        canvas.height = ch;
+
+        seabedY = ch - 100;
+        if (player && player.y > getSeabedY(player.x) - 15) {
+            player.y = Math.min(player.y, getSeabedY(player.x) - 15);
+        }
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    const LEVEL_LENGTH = 50000; 
+    const WATER_DRAG = 0.95; 
+    const BUOYANCY = 0.15; 
+    const GRAVITY = 0.45; // Land gravity
+    const CHASER_SPEED_UP_LERP = 0.05;
+    const CHASER_SPEED_DOWN_LERP = 0.08;
+    const LEVEL1_COMPLETE_KEY = 'missiongame_level1_completed_v1';
+    const BGM_CONFIG = {
+        path: 'assets/background.mp3',
+        volume: 0.3
+    };
+    const SFX_CONFIG = {
+        damage: { path: 'assets/damaged.mp3', volume: 0.85, cooldownMs: 120 },
+        jump: { path: 'assets/jump.mp3', volume: 0.75, cooldownMs: 100 },
+        animalBoost: { path: 'assets/animal.mp3', volume: 0.9, cooldownMs: 120 },
+        playerBoost: { path: 'assets/boostcollect.mp3', volume: 0.85, cooldownMs: 120 },
+        gameOver: { path: 'assets/gameover.mp3', volume: 0.9, cooldownMs: 300 }
+    };
+    let bgmAudio = null;
+    let bgmPrimed = false;
+    const sfxBank = {};
+    const sfxLastPlayed = {};
+    let sfxPrimed = false;
+
+    function initBackgroundMusic() {
+        bgmAudio = new Audio(BGM_CONFIG.path);
+        bgmAudio.loop = true;
+        bgmAudio.preload = 'auto';
+        bgmAudio.volume = BGM_CONFIG.volume;
+    }
+
+    function primeBackgroundMusic() {
+        if (bgmPrimed || !bgmAudio) return;
+        bgmPrimed = true;
+        bgmAudio.load();
+    }
+
+    function startBackgroundMusic(resetTrack = false) {
+        if (!bgmAudio) return;
+        if (resetTrack) {
+            bgmAudio.currentTime = 0;
+        }
+        bgmAudio.play().catch(() => {
+            // Ignore autoplay restrictions and continue gameplay.
+        });
+    }
+
+    function stopBackgroundMusic() {
+        if (!bgmAudio) return;
+        bgmAudio.pause();
+    }
+
+    function initSfx() {
+        for (const [key, config] of Object.entries(SFX_CONFIG)) {
+            const audio = new Audio(config.path);
+            audio.preload = 'auto';
+            sfxBank[key] = audio;
+        }
+    }
+
+    function primeSfx() {
+        if (sfxPrimed) return;
+        sfxPrimed = true;
+        for (const audio of Object.values(sfxBank)) {
+            audio.load();
+        }
+    }
+
+    function playSfx(key) {
+        const config = SFX_CONFIG[key];
+        const baseAudio = sfxBank[key];
+        if (!config || !baseAudio) return;
+
+        const now = performance.now();
+        const last = sfxLastPlayed[key] || 0;
+        if (now - last < config.cooldownMs) return;
+        sfxLastPlayed[key] = now;
+
+        const clip = baseAudio.cloneNode();
+        clip.volume = config.volume;
+        clip.play().catch(() => {
+            // Ignore autoplay restrictions and continue gameplay.
+        });
+    }
+
+    function isLevel2Unlocked() {
+        return localStorage.getItem(LEVEL1_COMPLETE_KEY) === 'true';
+    }
+
+    function syncLevel2Access() {
+        const unlocked = isLevel2Unlocked();
+        playButton.disabled = !unlocked;
+        if (unlocked) {
+            playButton.innerText = "DIVE IN!";
+            levelLockNote.style.display = "none";
+        } else {
+            playButton.innerText = "LOCKED";
+            levelLockNote.style.display = "block";
+        }
+    }
+
+    initBackgroundMusic();
+    initSfx();
+    syncLevel2Access();
+
+    // --- TERRAIN LOGIC (Seabed) ---
+    function getSeabedY(x) {
+        if (x >= LEVEL_LENGTH) {
+            return SURFACE_Y - 40; // Beach level (Above water)
+        }
+        let hillOffset = Math.sin(x / 600) * 40 + Math.sin(x / 1500) * 80;
+        let base = seabedY - hillOffset;
+
+        // Ramp up to beach in the last 1000 meters
+        if (x > LEVEL_LENGTH - 1000) {
+            let t = (x - (LEVEL_LENGTH - 1000)) / 1000;
+            return base * (1 - t) + (SURFACE_Y - 40) * t;
+        }
+        return base;
+    }
+
+    // Initialization
+    function initEntities() {
+        seabedY = ch - 100;
+        oxygen = MAX_OXYGEN;
+
+        player = {
+            x: 800, 
+            y: SURFACE_Y + 100, 
+            width: 70, 
+            height: 30,
+            vx: 0,
+            vy: 0,
+            baseSpeed: 6, 
+            speed: 6,
+            swimPower: -0.6, 
+            slowTimer: 0,
+            invulnTimer: 0,
+            glowTimer: 0,
+            boostTimer: 0, 
+            inkTimer: 0, // Blindness timer
+            angle: 0, 
+            legAngle: 0 // For land running
+        };
+
+        chaser = {
+            x: -600, 
+            y: SURFACE_Y + 200,
+            vx: 0,
+            vy: 0,
+            baseSpeed: 5.5, 
+            speed: 5.5,
+            width: 220,
+            height: 90,
+            targetSpeed: 5.5, 
+            glowTimer: 0,
+            boostTimer: 0,
+            autoBoostTimer: 1500, 
+            jawAngle: 0
+        };
+
+        dragon = {
+            active: false,
+            x: 0,
+            y: 0,
+            timer: 30,
+            speed: 6,
+            direction: 1
+        };
+
+        score = 0;
+        cameraX = 0;
+        tutorials = { coinSeen: false, obstacleSeen: false, oxygenSeen: false };
+        updateHUD();
+        generateLevel();
+    }
+
+    function generateLevel() {
+        environment = { pearls: [], seaweeds: [], fishes: [], bubbles: [], crocs: [], octopuses: [], inkBalls: [], endTrees: [], treesFar: [], treesMid: [], treesNear: [] }; 
+        
+        let currentX = 2500; 
+
+        while (currentX < LEVEL_LENGTH - 500) {
+            let surfaceDist = getSeabedY(currentX) - SURFACE_Y;
+            let randomY = SURFACE_Y + 50 + Math.random() * (surfaceDist - 100);
+            
+            // Octopuses only after 40% of the game, independent spawn chance
+            if (currentX > LEVEL_LENGTH * 0.4 && Math.random() < 0.08) {
+                environment.octopuses.push({
+                    x: currentX + Math.random() * 200,
+                    hasInked: false 
+                });
+            }
+
+            let rand = Math.random();
+
+            if (rand < 0.15) { // 15% Crocs
+                environment.crocs.push({
+                    x: currentX,
+                    y: SURFACE_Y + 15,
+                    width: 120,
+                    height: 30,
+                    speed: 1 + Math.random() * 2,
+                    direction: Math.random() > 0.5 ? 1 : -1,
+                    phase: Math.random() * Math.PI * 2
+                });
+                currentX += 400 + Math.random() * 300; 
+            }
+            else if (rand < 0.35) { // 20% Fishes
+                environment.fishes.push({
+                    x: currentX,
+                    y: randomY,
+                    width: 50,
+                    height: 30,
+                    speed: 2 + Math.random() * 3,
+                    direction: Math.random() > 0.5 ? 1 : -1,
+                    phase: Math.random() * Math.PI * 2
+                });
+                currentX += 300 + Math.random() * 300; 
+            }
+            else if (rand < 0.55) { // 20% Seaweed
+                let sWidth = 40 + Math.random() * 30;
+                environment.seaweeds.push({
+                    x: currentX,
+                    width: sWidth,
+                    height: 100 + Math.random() * 250 
+                });
+                currentX += 200 + Math.random() * 200;
+            } 
+            else { // 45% Pearls (High frequency boosts)
+                environment.pearls.push({
+                    x: currentX,
+                    y: SURFACE_Y + 30 + Math.random() * 60, 
+                    size: 15
+                });
+                currentX += 150 + Math.random() * 150; 
+            }
+        }
+
+        // Create End Game Forest on the Island
+        for(let i = LEVEL_LENGTH - 300; i < LEVEL_LENGTH + 2000; i += 40 + Math.random()*50) {
+            environment.endTrees.push({
+                x: i,
+                width: 50 + Math.random()*50,
+                height: 200 + Math.random()*300, 
+                type: Math.floor(Math.random()*3)
+            });
+        }
+
+        // Generate background trees
+        for(let i=0; i<LEVEL_LENGTH; i+= 150 + Math.random()*100) {
+            environment.treesFar.push({ x: i, width: 20+Math.random()*20, height: ch*0.6+Math.random()*ch*0.3, type: Math.floor(Math.random()*3) });
+        }
+        for(let i=0; i<LEVEL_LENGTH; i+= 200 + Math.random()*150) {
+            environment.treesMid.push({ x: i, width: 30+Math.random()*30, height: ch*0.7+Math.random()*ch*0.3, type: Math.floor(Math.random()*3) });
+        }
+        for(let i=0; i<LEVEL_LENGTH; i+= 300 + Math.random()*200) {
+            environment.treesNear.push({ x: i, width: 40+Math.random()*50, height: ch*0.9, type: Math.floor(Math.random()*3) });
+        }
+
+        // Bubbles
+        for(let i=0; i<300; i++) {
+            environment.bubbles.push({
+                x: Math.random() * LEVEL_LENGTH,
+                y: SURFACE_Y + Math.random() * (ch - SURFACE_Y),
+                size: 2 + Math.random() * 6,
+                speed: 0.5 + Math.random() * 1.5,
+                phase: Math.random() * Math.PI * 2
+            });
+        }
+    }
+
+    // Input Handling
+    window.addEventListener('keydown', (e) => {
+        if (gameState === 'tutorial' && e.code === 'Enter') {
+            e.preventDefault(); 
+            resumeTutorial();
+            return;
+        }
+        if(gameState !== 'playing' && gameState !== 'winning_scene') return;
+        if(e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
+        if(e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+        if(e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') keys.up = true;
+    });
+    window.addEventListener('keyup', (e) => {
+        if(e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+        if(e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+        if(e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') keys.up = false;
+    });
+
+    function bindTouch(btnId, keyName) {
+        const btn = document.getElementById(btnId);
+        btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[keyName] = true; btn.classList.add('active'); });
+        btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[keyName] = false; btn.classList.remove('active'); });
+        btn.addEventListener('touchcancel', (e) => { e.preventDefault(); keys[keyName] = false; btn.classList.remove('active'); });
+    }
+    bindTouch('btnLeft', 'left');
+    bindTouch('btnRight', 'right');
+    bindTouch('btnJump', 'up');
+
+    function updateHUD() {
+        scoreText.innerText = score;
+        let progress = Math.min((player.x / LEVEL_LENGTH) * 100, 100);
+        progressBar.style.width = Math.max(0, progress) + '%';
+
+        let oxyPercent = Math.max(0, (oxygen / MAX_OXYGEN) * 100);
+        oxygenBar.style.width = oxyPercent + '%';
+        
+        if (oxyPercent < 20) {
+            oxygenBar.classList.add('oxygen-low');
+            damageOverlay.style.opacity = 0.3 + Math.sin(frameTimeMs / 100) * 0.2; 
+        } else {
+            oxygenBar.classList.remove('oxygen-low');
+            damageOverlay.style.opacity = 0;
+        }
+    }
+
+    function createFloatingText(text, x, y, color) {
+        const el = document.createElement('div');
+        el.className = 'floating-text';
+        el.innerText = text;
+        let screenX = (x - cameraX) * (window.innerWidth / cw);
+        let screenY = y * (window.innerHeight / ch);
+        el.style.left = screenX + 'px';
+        el.style.top = screenY + 'px';
+        el.style.color = color;
+        uiLayer.appendChild(el);
+        setTimeout(() => { if(el.parentNode) el.parentNode.removeChild(el); }, 1000);
+    }
+
+    function showTutorial(title, text, worldX, worldY, type) {
+        gameState = 'tutorial';
+        keys.left = false; keys.right = false; keys.up = false; 
+        
+        document.getElementById('tutTitle').innerText = title;
+        document.getElementById('tutText').innerText = text;
+        
+        let screenX = (worldX - cameraX) / cw * window.innerWidth;
+        let screenY = worldY / ch * window.innerHeight;
+        
+        tutorialPopup.style.borderColor = type === 'coin' ? '#00ffff' : '#ff4444';
+        tutorialPopup.style.left = screenX + 'px';
+        tutorialPopup.style.top = screenY + 'px';
+        tutorialPopup.classList.remove('hidden');
+    }
+
+    function resumeTutorial() {
+        tutorialPopup.classList.add('hidden');
+        gameState = 'playing';
+        lastTime = 0; 
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = requestAnimationFrame(gameLoop);
+    }
+
+    function AABB(r1, r2) {
+        return r1.x < r2.x + r2.w &&
+               r1.x + r1.w > r2.x &&
+               r1.y < r2.y + r2.h &&
+               r1.y + r1.h > r2.y;
+    }
+
+    // --- CHECK COLLISIONS (Underwater) ---
+    function checkCollisions() {
+        let pRect = gameState === 'winning_scene' ? 
+                    { x: player.x, y: player.y, w: 30, h: 60 } : 
+                    { x: player.x, y: player.y - player.height/2, w: player.width, h: player.height };
+        
+        const cRect = { x: chaser.x, y: chaser.y - chaser.height/2, w: chaser.width, h: chaser.height };
+
+        for (let i = environment.pearls.length - 1; i >= 0; i--) {
+            let pearl = environment.pearls[i];
+            let pSize = pearl.size;
+            let sRect = { x: pearl.x - pSize, y: pearl.y - pSize, w: pSize*2, h: pSize*2 };
+            
+            if (AABB(cRect, sRect) || chaser.x > pearl.x + 100) {
+                environment.pearls.splice(i, 1);
+                chaser.boostTimer = 180; 
+                chaser.glowTimer = 180; 
+                createFloatingText("Shark Frenzy!", Math.max(50, player.x), ch/2, "#ff4444");
+                playSfx('animalBoost');
+                continue;
+            }
+
+            if (AABB(pRect, sRect)) {
+                score += 100;
+                player.boostTimer = 120; 
+                player.glowTimer = 120; 
+                environment.pearls.splice(i, 1);
+                createFloatingText("+Speed!", pearl.x, pearl.y, "#00ffff");
+                playSfx('playerBoost');
+            }
+        }
+
+        for (let weed of environment.seaweeds) {
+            let sy = getSeabedY(weed.x + weed.width/2);
+            let wRect = { x: weed.x, y: sy - weed.height, w: weed.width, h: weed.height };
+            if (AABB(pRect, wRect)) {
+                if (player.slowTimer === 0) {
+                    player.slowTimer = 90; 
+                    createFloatingText("Tangled!", player.x, player.y - 20, "#4caf50");
+                    playSfx('damage');
+                }
+            }
+        }
+
+        for (let fish of environment.fishes) {
+            let fRect = { x: fish.x, y: fish.y, w: fish.width, h: fish.height };
+            if (player.invulnTimer === 0 && AABB(pRect, fRect)) {
+                player.invulnTimer = 60; 
+                player.slowTimer = 120; 
+                player.vx = -5; 
+                oxygen -= 200; 
+                createFloatingText("Bitten! Oxy Loss!", player.x, player.y - 40, "#ff4444");
+                playSfx('damage');
+            }
+        }
+
+        for (let croc of environment.crocs) {
+            let cRect = { x: croc.x - croc.width/2, y: croc.y - croc.height/2, w: croc.width, h: croc.height };
+            if (player.invulnTimer === 0 && AABB(pRect, cRect)) {
+                player.invulnTimer = 90; 
+                player.slowTimer = 150; 
+                player.vx = -8; 
+                oxygen -= 400; 
+                createFloatingText("Croc Bite! -O2", player.x, player.y - 40, "#ff0000");
+                playSfx('damage');
+            }
+        }
+    }
+
+    // --- MAIN GAME UPDATE ---
+    function update() {
+        frameCount++;
+
+        // WINNING SCENE LOGIC (Land running as stickman)
+        if(gameState === 'winning_scene') {
+            player.vx = player.baseSpeed;
+            player.legAngle += 0.25; 
+            
+            // Apply gravity on land
+            player.vy += GRAVITY;
+            player.x += player.vx;
+            player.y += player.vy;
+            
+            let currentGround = getSeabedY(player.x);
+            if (player.y >= currentGround - 60) { // Stickman height is 60
+                player.y = currentGround - 60;
+                player.vy = 0;
+            }
+            
+            let targetCameraX = player.x - cw / 3;
+            cameraX = Math.min(targetCameraX, LEVEL_LENGTH + 800); 
+            
+            if (player.x > LEVEL_LENGTH + 800) {
+                endGame('win', "");
+            }
+            return;
+        }
+
+        if(gameState !== 'playing') return;
+
+        // OXYGEN LOGIC
+        if (player.y <= SURFACE_Y + 10) {
+            oxygen = Math.min(MAX_OXYGEN, oxygen + 20); 
+        } else {
+            oxygen -= 1; 
+        }
+        updateHUD();
+
+        if (oxygen <= 0) {
+            endGame('lose', "Aapki saans toot gayi! (You Drowned)");
+            return;
+        }
+
+        if (chaser.autoBoostTimer > 0) {
+            chaser.autoBoostTimer--;
+        } else {
+            chaser.boostTimer = 180;  
+            chaser.glowTimer = 180;
+            chaser.autoBoostTimer = 1500; 
+            createFloatingText("Shark Dash!", Math.max(50, player.x), ch/2, "#ff4444");
+            playSfx('animalBoost');
+        }
+
+        // --- OCTOPUS & INK LOGIC (Targeted Projectile) ---
+        for (let octo of environment.octopuses) {
+            if (!octo.hasInked && player.x > octo.x - 400 && player.x < octo.x + 300) {
+                octo.hasInked = true;
+                environment.inkBalls.push({
+                    x: octo.x,
+                    y: getSeabedY(octo.x) - 60, 
+                    speed: 12 
+                });
+            }
+        }
+
+        // Update Flying Ink Balls
+        for (let i = environment.inkBalls.length - 1; i >= 0; i--) {
+            let ink = environment.inkBalls[i];
+            
+            let dx = player.x - ink.x;
+            let dy = player.y - ink.y;
+            let distSq = dx * dx + dy * dy;
+            
+            if (distSq < 1600) {
+                player.inkTimer = 300; // 5 seconds of blindness
+                environment.inkBalls.splice(i, 1);
+                createFloatingText("INKED!", player.x, player.y - 50, "#cc66ff");
+                playSfx('damage');
+                continue;
+            }
+
+            let invDist = 1 / Math.sqrt(distSq || 1);
+            ink.x += dx * invDist * ink.speed;
+            ink.y += dy * invDist * ink.speed;
+        }
+
+        if (player.inkTimer > 0) player.inkTimer--;
+
+        // Tutorials
+        if (!tutorials.oxygenSeen && frameCount > 100) {
+            tutorials.oxygenSeen = true;
+            showTutorial("Breathe!", "Your blue oxygen bar is depleting! Swim UP to the surface line to take a breath every 30 seconds!", player.x + 200, SURFACE_Y, 'oxygen');
+            return;
+        }
+
+        if (!tutorials.coinSeen && environment.pearls.length > 0) {
+            let firstP = environment.pearls[0];
+            if (firstP.x - cameraX > 50 && firstP.x - cameraX < cw * 0.6) {
+                tutorials.coinSeen = true;
+                showTutorial("Glowing Pearls!", "Collect pearls for a speed boost! If the Shark eats it, it gets much faster!", firstP.x, firstP.y, 'coin');
+                return;
+            }
+        }
+
+        // SWIM PHYSICS
+        if (keys.left) {
+            player.vx -= 0.5;
+        } else if (keys.right) {
+            player.vx += 0.5;
+        } else {
+            player.vx += (player.speed - player.vx) * 0.1; 
+        }
+
+        if (keys.up) {
+            player.vy += player.swimPower; 
+        }
+        
+        player.vy += BUOYANCY; 
+        player.vy *= WATER_DRAG;
+        
+        let maxVx = (player.slowTimer > 0) ? player.speed * 0.5 : (player.boostTimer > 0 ? player.speed * 1.5 : player.speed);
+        if (player.vx > maxVx) player.vx = maxVx;
+
+        player.x += player.vx;
+        player.y += player.vy;
+
+        player.angle = player.vy * 0.1;
+
+        let currentSeabedY = getSeabedY(player.x);
+        if (player.y > currentSeabedY - 15) {
+            player.y = currentSeabedY - 15;
+            player.vy = 0;
+        }
+        if (player.y < SURFACE_Y) {
+            player.y = SURFACE_Y;
+            if(player.vy < 0) player.vy = 0;
+        }
+        if (player.x < 0) player.x = 0;
+
+        if (player.slowTimer > 0) player.slowTimer--;
+        if (player.boostTimer > 0) player.boostTimer--;
+        if (player.invulnTimer > 0) player.invulnTimer--;
+        if (player.glowTimer > 0) player.glowTimer--;
+        if (chaser.glowTimer > 0) chaser.glowTimer--;
+
+        if (chaser.boostTimer > 0) {
+            chaser.boostTimer--;
+            chaser.targetSpeed = chaser.baseSpeed * 1.8; 
+        } else {
+            chaser.targetSpeed = chaser.baseSpeed; 
+        }
+
+        let targetCameraX = player.x - cw / 3;
+        if (targetCameraX > cameraX) cameraX = targetCameraX; 
+        if (player.x < cameraX + 50) player.x = cameraX + 50;
+
+        const chaserSpeedLerp = chaser.targetSpeed < chaser.speed ? CHASER_SPEED_DOWN_LERP : CHASER_SPEED_UP_LERP;
+        chaser.speed += (chaser.targetSpeed - chaser.speed) * chaserSpeedLerp;
+        if (Math.abs(chaser.targetSpeed - chaser.speed) < 0.01) {
+            chaser.speed = chaser.targetSpeed;
+        }
+        chaser.x += chaser.speed;
+        
+        let yDiff = player.y - chaser.y;
+        chaser.y += yDiff * 0.02; 
+        
+        let sharkBed = getSeabedY(chaser.x);
+        if (chaser.y > sharkBed - 30) chaser.y = sharkBed - 30;
+        if (chaser.y < SURFACE_Y + 20) chaser.y = SURFACE_Y + 20;
+
+        // Dragon Background (Screen Relative Spawning & Ping-Pong)
+        if (!dragon.active) {
+            dragon.timer--;
+            if (dragon.timer <= 0) {
+                dragon.active = true;
+                if (dragon.direction === 1) {
+                    dragon.x = cameraX - 800;
+                } else {
+                    dragon.x = cameraX + cw + 800;
+                }
+                dragon.y = ch * 0.05 + Math.random() * (ch * 0.3);
+                dragon.speed = 6 + Math.random() * 3;
+            }
+        } else {
+            dragon.x += dragon.speed * dragon.direction; 
+
+            if (dragon.direction === 1 && dragon.x > cameraX + cw + 800) {
+                dragon.active = false;
+                dragon.direction = -1;
+                dragon.timer = 60 + Math.random() * 120;
+            } else if (dragon.direction === -1 && dragon.x < cameraX - 800) {
+                dragon.active = false;
+                dragon.direction = 1;
+                dragon.timer = 60 + Math.random() * 120;
+            }
+        }
+
+        for (let fish of environment.fishes) {
+            fish.x += fish.speed * fish.direction;
+            fish.y += Math.sin(frameCount*0.05 + fish.phase) * 1.5; 
+        }
+        
+        for (let croc of environment.crocs) {
+            croc.x += croc.speed * croc.direction;
+            croc.y = SURFACE_Y + 15 + Math.sin(frameCount*0.05 + croc.phase) * 4; 
+        }
+        
+        for (let b of environment.bubbles) {
+            b.y -= b.speed;
+            b.x += Math.sin(frameCount*0.05 + b.phase) * 1;
+            if (b.y < SURFACE_Y) {
+                b.y = getSeabedY(b.x); 
+            }
+        }
+
+        let distanceToChaser = player.x - chaser.x;
+        if (distanceToChaser < cw && distanceToChaser > 0) {
+            chaserWarning.style.opacity = 1 - (distanceToChaser / cw);
+            chaserWarning.innerText = "SHARK NEAR!";
+        } else {
+            chaserWarning.style.opacity = 0;
+        }
+
+        if (chaser.x + chaser.width*0.8 > player.x && Math.abs(chaser.y - player.y) < 60) {
+            endGame('lose', "The Shark's jaws crushed you!");
+            return;
+        }
+
+        // TRIGGER END SCENE
+        if (player.x >= LEVEL_LENGTH && gameState !== 'winning_scene') {
+            gameState = 'winning_scene';
+            player.vx = player.baseSpeed; // Force run
+            player.vy = -10; // Jump out of water
+            player.y = SURFACE_Y; 
+            keys.left = false;
+            keys.right = false;
+            keys.up = false;
+            playSfx('jump');
+            return;
+        }
+
+        checkCollisions();
+    }
+
+    // DRAW STICKMAN HELPER
+    function drawLimb(startX, startY, len1, rot1, len2, rot2, width, isDark = false) {
+        let kneeX = startX + Math.sin(rot1) * len1;
+        let kneeY = startY + Math.cos(rot1) * len1;
+        let footX = kneeX + Math.sin(rot1 + rot2) * len2;
+        let footY = kneeY + Math.cos(rot1 + rot2) * len2;
+        
+        ctx.lineWidth = width;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.strokeStyle = isDark ? "#222" : "#000"; 
+        
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(kneeX, kneeY);
+        ctx.lineTo(footX, footY);
+        ctx.stroke();
+        return { kneeX, kneeY, footX, footY };
+    }
+
+    // DRAW TREES HELPER (With Terrain Y Support)
+    function drawTrees(trees, parallax, color, useTerrainY = false) {
+        ctx.fillStyle = color;
+        
+        function drawBranch(startX, startY, ctrlX, ctrlY, endX, endY, thickness) {
+            ctx.beginPath();
+            ctx.moveTo(startX - thickness/2, startY);
+            ctx.quadraticCurveTo(ctrlX, ctrlY, endX, endY); 
+            ctx.quadraticCurveTo(ctrlX + thickness, ctrlY + thickness/2, startX + thickness/2, startY); 
+            ctx.fill();
+        }
+
+        for (let tree of trees) {
+            let screenX = tree.x - (cameraX * parallax);
+            if (screenX + tree.width < -100 || screenX > cw + 100) continue;
+
+            let baseY = useTerrainY ? getSeabedY(tree.x) : groundY; 
+            let baseExt = 150; 
+            let h = tree.height;
+            let w = tree.width;
+
+            ctx.beginPath();
+            ctx.moveTo(screenX - w/2, baseY + baseExt);
+            ctx.quadraticCurveTo(screenX - w/4, baseY - h/2, screenX, baseY - h); 
+            ctx.quadraticCurveTo(screenX + w/4, baseY - h/2, screenX + w/2, baseY + baseExt); 
+            ctx.fill();
+
+            if (tree.type === 0) {
+                drawBranch(screenX, baseY - h*0.3, screenX - w*0.8, baseY - h*0.4, screenX - w*1.5, baseY - h*0.6, w*0.4);
+                drawBranch(screenX, baseY - h*0.5, screenX + w*0.8, baseY - h*0.6, screenX + w*1.5, baseY - h*0.8, w*0.3);
+                drawBranch(screenX - w*0.1, baseY - h*0.6, screenX - w*0.6, baseY - h*0.8, screenX - w*1.0, baseY - h*0.95, w*0.25);
+                drawBranch(screenX + w*0.1, baseY - h*0.7, screenX + w*0.5, baseY - h*0.8, screenX + w*0.8, baseY - h*0.9, w*0.2);
+            } 
+            else if (tree.type === 1) {
+                drawBranch(screenX, baseY - h*0.2, screenX + w*1.0, baseY - h*0.3, screenX + w*2.0, baseY - h*0.4, w*0.5);
+                drawBranch(screenX + w*0.1, baseY - h*0.4, screenX + w*1.2, baseY - h*0.5, screenX + w*1.8, baseY - h*0.65, w*0.35);
+                drawBranch(screenX + w*0.1, baseY - h*0.65, screenX + w*0.8, baseY - h*0.8, screenX + w*1.2, baseY - h*0.95, w*0.2);
+                drawBranch(screenX, baseY - h*0.5, screenX - w*0.5, baseY - h*0.5, screenX - w*1.0, baseY - h*0.6, w*0.2);
+            } 
+            else {
+                drawBranch(screenX, baseY - h*0.2, screenX - w*0.5, baseY - h*0.2, screenX - w*1.2, baseY - h*0.3, w*0.3);
+                drawBranch(screenX, baseY - h*0.3, screenX + w*0.5, baseY - h*0.3, screenX + w*1.2, baseY - h*0.4, w*0.3);
+                drawBranch(screenX, baseY - h*0.45, screenX - w*0.6, baseY - h*0.5, screenX - w*1.0, baseY - h*0.6, w*0.2);
+                drawBranch(screenX, baseY - h*0.55, screenX + w*0.6, baseY - h*0.6, screenX + w*1.0, baseY - h*0.7, w*0.2);
+                drawBranch(screenX, baseY - h*0.7, screenX - w*0.4, baseY - h*0.8, screenX - w*0.6, baseY - h*0.9, w*0.15);
+                drawBranch(screenX, baseY - h*0.8, screenX + w*0.4, baseY - h*0.9, screenX + w*0.6, baseY - h*0.95, w*0.1);
+            }
+        }
+    }
+
+    function drawDragonSprite(dx, dy, opacity = 1, underwaterTint = false) {
+        let runCycle = frameTimeMs / 200;
+        let bodyLength = 260;
+        let waveFreq = 0.04;
+        let waveAmp = 20;
+
+        ctx.save();
+        ctx.translate(dx, dy);
+        ctx.scale(dragon.direction * 3.5, 3.5);
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+        ctx.globalAlpha = opacity;
+
+        if (underwaterTint) {
+            ctx.shadowColor = "#66ccff";
+            ctx.shadowBlur = 14;
+        } else {
+            ctx.shadowColor = "#ff0000";
+            ctx.shadowBlur = 20;
+        }
+
+        ctx.fillStyle = "#000";
+        ctx.beginPath();
+        for(let i = 0; i <= bodyLength; i+=6) {
+            let waveY = Math.sin(runCycle - i * waveFreq) * waveAmp;
+            ctx.moveTo(-i, waveY - 4);
+            ctx.lineTo(-i - 5, waveY - 20);
+            ctx.lineTo(-i - 10, waveY - 4);
+        }
+        ctx.fill();
+
+        ctx.lineWidth = 16;
+        ctx.strokeStyle = "#000";
+        ctx.beginPath();
+        for(let i = 0; i <= bodyLength; i+=4) {
+            let waveY = Math.sin(runCycle - i * waveFreq) * waveAmp;
+            if(i===0) ctx.moveTo(-i, waveY);
+            else ctx.lineTo(-i, waveY);
+        }
+        ctx.stroke();
+
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "#000";
+        let legPositions = [40, 100, 170, 230];
+        for(let i=0; i<legPositions.length; i++) {
+            let lx = -legPositions[i];
+            let ly = Math.sin(runCycle - legPositions[i] * waveFreq) * waveAmp;
+
+            ctx.fillStyle = "#000";
+            ctx.beginPath();
+            ctx.arc(lx, ly + 8, 4, 0, Math.PI*2);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(lx, ly);
+            let jointX = lx + (i%2===0 ? 12 : -12);
+            let jointY = ly + 15;
+            ctx.quadraticCurveTo(lx, ly + 10, jointX, jointY);
+            ctx.lineTo(jointX + 6, jointY + 6);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(jointX, jointY); ctx.lineTo(jointX - 4, jointY + 8);
+            ctx.moveTo(jointX, jointY); ctx.lineTo(jointX + 8, jointY + 8);
+            ctx.stroke();
+        }
+
+        let headY = Math.sin(runCycle) * waveAmp;
+        ctx.save();
+        ctx.translate(0, headY);
+
+        ctx.fillStyle = "#000";
+        ctx.beginPath();
+        ctx.moveTo(0, -8);
+        ctx.lineTo(15, -12);
+        ctx.lineTo(38, -5);
+        ctx.lineTo(38, 2);
+        ctx.lineTo(18, 5);
+        ctx.lineTo(32, 10);
+        ctx.lineTo(10, 12);
+        ctx.lineTo(-10, 5);
+        ctx.fill();
+
+        ctx.fillStyle = "#000";
+        ctx.beginPath();
+        ctx.moveTo(0, -8);
+        ctx.quadraticCurveTo(-10, -25, -25, -15);
+        ctx.quadraticCurveTo(-15, -5, -5, -5);
+        ctx.fill();
+
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(10, -10);
+        ctx.quadraticCurveTo(0, -25, -15, -20);
+        ctx.moveTo(12, -8);
+        ctx.quadraticCurveTo(5, -20, -5, -25);
+        ctx.stroke();
+
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(38, -2);
+        ctx.quadraticCurveTo(55, 10, 40, 28);
+        ctx.moveTo(38, -2);
+        ctx.quadraticCurveTo(65, 5, 55, 15);
+        ctx.stroke();
+
+        ctx.fillStyle = "#FFF";
+        if (underwaterTint) {
+            ctx.shadowColor = "#66ccff";
+            ctx.shadowBlur = 14;
+        } else {
+            ctx.shadowColor = "#ff0000";
+            ctx.shadowBlur = 20;
+        }
+        ctx.beginPath();
+        ctx.arc(22, -4, 3, 0, Math.PI*2);
+        ctx.fill();
+
+        ctx.restore();
+
+        let tailX = -bodyLength;
+        let tailY = Math.sin(runCycle - bodyLength * waveFreq) * waveAmp;
+
+        ctx.save();
+        ctx.translate(tailX, tailY);
+
+        ctx.fillStyle = "#000";
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(-20, -25, -40, -10);
+        ctx.quadraticCurveTo(-25, -5, -15, 0);
+        ctx.quadraticCurveTo(-35, 15, -25, 25);
+        ctx.quadraticCurveTo(-10, 10, 0, 0);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(-10, -15, -25, -5);
+        ctx.quadraticCurveTo(-15, -2, -8, 0);
+        ctx.quadraticCurveTo(-20, 10, -15, 15);
+        ctx.quadraticCurveTo(-5, 5, 0, 0);
+        ctx.fill();
+
+        ctx.restore();
+        ctx.restore();
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+    }
+
+    // --- RENDERING HELPERS ---
+    function render() {
+        let time = frameTimeMs / 300;
+
+        // 1. Sky & Background (Above water)
+        let skyGrad = ctx.createLinearGradient(0, 0, 0, SURFACE_Y);
+        skyGrad.addColorStop(0, "#001133");
+        skyGrad.addColorStop(1, "#004466");
+        ctx.fillStyle = skyGrad;
+        ctx.fillRect(0, 0, cw, Math.max(0, SURFACE_Y));
+
+        ctx.fillStyle = "rgba(200, 220, 255, 0.8)";
+        ctx.beginPath();
+        ctx.arc(cw * 0.7, 60, 40, 0, Math.PI * 2);
+        ctx.fill();
+
+        let dragonScreenX = 0;
+        let dragonScreenY = 0;
+        if (dragon.active) {
+            dragonScreenX = dragon.x - cameraX * 0.15;
+            dragonScreenY = dragon.y + Math.sin(frameTimeMs / 1000) * 40;
+            drawDragonSprite(dragonScreenX, dragonScreenY, 1, false);
+        }
+
+        // Keep this reset even when dragon is off-screen.
+        ctx.shadowBlur = 0;
+
+        // 3. Underwater Gradient 
+        let waterGrad = ctx.createLinearGradient(0, SURFACE_Y, 0, ch);
+        waterGrad.addColorStop(0, "#0088cc"); 
+        waterGrad.addColorStop(0.5, "#003366"); 
+        waterGrad.addColorStop(1, "#00051a"); 
+        ctx.fillStyle = waterGrad;
+        ctx.fillRect(0, SURFACE_Y, cw, ch - SURFACE_Y);
+
+        // Dragon ka jo hissa pani ke neeche hai, usko halka visible rakho.
+        if (dragon.active) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(0, SURFACE_Y, cw, ch - SURFACE_Y);
+            ctx.clip();
+            drawDragonSprite(dragonScreenX, dragonScreenY, 0.22, true);
+            ctx.restore();
+        }
+
+        // 4. Surface Wave Details
+        ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+        ctx.beginPath();
+        let timeWave = frameTimeMs / 300;
+        ctx.moveTo(0, SURFACE_Y);
+        for(let i=0; i<=cw; i+=20) {
+            ctx.lineTo(i, SURFACE_Y + Math.sin(i*0.02 + timeWave) * 5);
+        }
+        ctx.lineTo(cw, 0);
+        ctx.lineTo(0, 0);
+        ctx.fill();
+
+        // 5. Caustics (Light Rays from surface)
+        ctx.fillStyle = "rgba(0, 255, 255, 0.03)";
+        for(let i=0; i<10; i++) {
+            let rayX = (i * 200 - cameraX * 0.2 + timeWave*50) % (cw + 400) - 200;
+            ctx.beginPath();
+            ctx.moveTo(rayX, SURFACE_Y);
+            ctx.lineTo(rayX + 150, ch);
+            ctx.lineTo(rayX + 250, ch);
+            ctx.lineTo(rayX + 50, SURFACE_Y);
+            ctx.fill();
+        }
+
+        // 6. Draw Seabed & Beach (Terrain)
+        ctx.beginPath();
+        ctx.moveTo(0, ch);
+        ctx.lineTo(0, getSeabedY(cameraX));
+        
+        let maxDrawX = Math.min(cw, LEVEL_LENGTH + 1500 - cameraX); 
+        for(let x = 0; x <= maxDrawX; x += 20) {
+            ctx.lineTo(x, getSeabedY(cameraX + x));
+        }
+        ctx.lineTo(maxDrawX, ch);
+        
+        // Final Land is now Pitch Black
+        if (cameraX > LEVEL_LENGTH - cw - 1000) {
+            let beachGrad = ctx.createLinearGradient(LEVEL_LENGTH - cameraX - 1000, 0, LEVEL_LENGTH - cameraX, 0);
+            beachGrad.addColorStop(0, "#0a1a2a"); 
+            beachGrad.addColorStop(1, "#050505"); // Black Jungle Sand
+            ctx.fillStyle = beachGrad;
+        } else {
+            ctx.fillStyle = "#0a1a2a"; 
+        }
+        ctx.fill();
+
+        // 6.5 Draw End Game Forest (Black Trees on Final Land)
+        drawTrees(environment.endTrees, 1.0, "#020202", true);
+
+        // 7. Background Bubbles
+        ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+        for(let b of environment.bubbles) {
+            let bx = b.x - cameraX * 0.8; 
+            if(bx > -20 && bx < cw + 20) {
+                ctx.beginPath();
+                ctx.arc(bx, b.y, b.size, 0, Math.PI*2);
+                ctx.fill();
+            }
+        }
+
+        // 7.5 Giant Octopuses 
+        for (let octo of environment.octopuses) {
+            let ox = octo.x - cameraX;
+            if (ox < -250 || ox > cw + 250) continue;
+            
+            let oy = getSeabedY(octo.x) - 40;
+            
+            ctx.save();
+            ctx.translate(ox, oy);
+            ctx.translate(0, Math.sin(timeWave + octo.x)*15); 
+            
+            ctx.strokeStyle = "#3a004a";
+            ctx.lineWidth = 20;
+            ctx.lineCap = "round";
+            for(let t=0; t<8; t++) {
+                let tAngle = (Math.PI/7) * t;
+                ctx.beginPath();
+                ctx.moveTo(0, -20);
+                let wX = Math.cos(tAngle)*90 + Math.sin(timeWave*3 + t)*40;
+                let wY = Math.sin(tAngle)*40 + 60;
+                ctx.quadraticCurveTo(wX*0.5, wY*1.5, wX, wY);
+                ctx.stroke();
+                
+                ctx.fillStyle = "#ff66ff";
+                ctx.beginPath(); ctx.arc(wX*0.7, wY*0.7, 5, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(wX*0.4, wY*1.1, 6, 0, Math.PI*2); ctx.fill();
+            }
+
+            ctx.fillStyle = "#2a002a"; 
+            ctx.beginPath();
+            ctx.ellipse(0, -50, 60, 80, 0, 0, Math.PI*2);
+            ctx.fill();
+            
+            ctx.fillStyle = "#ff3300";
+            ctx.beginPath(); ctx.arc(-25, -60, 10, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(25, -60, 10, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = "#ffff00";
+            ctx.beginPath(); ctx.arc(-25, -60, 4, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(25, -60, 4, 0, Math.PI*2); ctx.fill();
+            
+            ctx.restore();
+        }
+
+        // 7.8 Flying Ink Balls
+        for (let ink of environment.inkBalls) {
+            let ix = ink.x - cameraX;
+            if (ix < -50 || ix > cw + 50) continue;
+            
+            ctx.fillStyle = "rgba(15, 5, 20, 0.95)";
+            ctx.beginPath();
+            ctx.arc(ix, ink.y, 14 + Math.random()*3, 0, Math.PI*2);
+            ctx.fill();
+            
+            ctx.fillStyle = "rgba(15, 5, 20, 0.6)";
+            ctx.beginPath(); ctx.arc(ix - 12, ink.y, 10, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(ix - 22, ink.y, 6, 0, Math.PI*2); ctx.fill();
+        }
+
+        // 8. Seaweed 
+        ctx.lineWidth = 4;
+        ctx.lineCap = "round";
+        for (let weed of environment.seaweeds) {
+            let wx = weed.x - cameraX;
+            if (wx + weed.width < 0 || wx > cw) continue;
+            
+            let baseSy = getSeabedY(weed.x + weed.width/2); 
+            
+            for(let i=0; i<3; i++) {
+                ctx.strokeStyle = i%2==0 ? "#115522" : "#228833"; 
+                ctx.beginPath();
+                ctx.moveTo(wx + i*15, baseSy + 10);
+                
+                let segments = 5;
+                let segH = weed.height / segments;
+                for(let s=1; s<=segments; s++) {
+                    let waveX = wx + i*15 + Math.sin(timeWave*2 + s + i) * 15;
+                    ctx.quadraticCurveTo(wx + i*15, baseSy - segH*(s-0.5), waveX, baseSy - segH*s);
+                }
+                ctx.stroke();
+            }
+        }
+
+        // 9. Fishes
+        for (let fish of environment.fishes) {
+            let fx = fish.x - cameraX;
+            if (fx + fish.width < -100 || fx > cw + 100) continue;
+            
+            ctx.save();
+            ctx.translate(fx, fish.y);
+            ctx.scale(fish.direction, 1); 
+
+            ctx.fillStyle = "#ff6600"; 
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 20, 10, 0, 0, Math.PI*2);
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.moveTo(-15, 0);
+            ctx.lineTo(-30, -10 + Math.sin(timeWave*8)*5);
+            ctx.lineTo(-30, 10 + Math.sin(timeWave*8)*5);
+            ctx.fill();
+            
+            ctx.fillStyle = "white";
+            ctx.beginPath(); ctx.arc(10, -3, 3, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = "black";
+            ctx.beginPath(); ctx.arc(11, -3, 1.5, 0, Math.PI*2); ctx.fill();
+            
+            ctx.strokeStyle = "#fff"; ctx.lineWidth=2;
+            ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(0, 9); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(-8, -8); ctx.lineTo(-8, 8); ctx.stroke();
+            
+            ctx.restore();
+        }
+
+        // 9.5 Crocodiles
+        for (let croc of environment.crocs) {
+            let cx = croc.x - cameraX;
+            if (cx + croc.width/2 < -100 || cx - croc.width/2 > cw + 100) continue;
+            
+            ctx.save();
+            ctx.translate(cx, croc.y);
+            ctx.scale(croc.direction, 1); 
+
+            ctx.fillStyle = "#2d4c1e"; 
+            ctx.beginPath();
+            ctx.ellipse(0, 0, croc.width/2, croc.height/2, 0, 0, Math.PI*2);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(croc.width/2 - 10, -5);
+            ctx.lineTo(croc.width/2 + 35, -2);
+            ctx.lineTo(croc.width/2 + 35, 8);
+            ctx.lineTo(croc.width/2 - 10, 10);
+            ctx.fill();
+
+            let tailWag = Math.sin(frameTimeMs / 150 + croc.phase) * 10;
+            ctx.beginPath();
+            ctx.moveTo(-croc.width/2 + 10, 0);
+            ctx.lineTo(-croc.width/2 - 40, tailWag);
+            ctx.lineTo(-croc.width/2 + 10, 10);
+            ctx.fill();
+
+            ctx.fillStyle = "#1a3311";
+            for(let i = -croc.width/2 + 15; i < croc.width/2 - 15; i += 18) {
+                ctx.beginPath();
+                ctx.arc(i, -croc.height/2 + 2, 4, Math.PI, 0);
+                ctx.fill();
+            }
+
+            ctx.fillStyle = "yellow";
+            ctx.beginPath();
+            ctx.arc(croc.width/2 - 5, -8, 3, 0, Math.PI*2);
+            ctx.fill();
+            ctx.fillStyle = "red";
+            ctx.beginPath();
+            ctx.arc(croc.width/2 - 4, -8, 1.5, 0, Math.PI*2);
+            ctx.fill();
+
+            ctx.fillStyle = "white";
+            for(let i=0; i<4; i++) {
+                ctx.beginPath();
+                ctx.moveTo(croc.width/2 + i*8, 8);
+                ctx.lineTo(croc.width/2 + 4 + i*8, 14);
+                ctx.lineTo(croc.width/2 + 8 + i*8, 8);
+                ctx.fill();
+            }
+
+            ctx.restore();
+        }
+
+        // 10. Pearls 
+        for (let pearl of environment.pearls) {
+            let px = pearl.x - cameraX;
+            if (px + pearl.size < -50 || px > cw + 50) continue;
+
+            ctx.shadowColor = "#00ffff";
+            ctx.shadowBlur = 20;
+            ctx.fillStyle = "#ffffff";
+            
+            let pulseSize = pearl.size + Math.sin(timeWave*3) * 3; 
+            
+            ctx.beginPath();
+            ctx.arc(px, pearl.y + Math.sin(timeWave*2 + pearl.x)*10, pulseSize, 0, Math.PI*2);
+            ctx.fill();
+            
+            ctx.fillStyle = "#00ffff";
+            ctx.beginPath();
+            ctx.arc(px, pearl.y + Math.sin(timeWave*2 + pearl.x)*10, pulseSize*0.5, 0, Math.PI*2);
+            ctx.fill();
+            
+            ctx.shadowBlur = 0;
+        }
+
+        // 11. Draw Player
+        if (player.invulnTimer === 0 || Math.floor(frameTimeMs / 100) % 2 === 0) { 
+            let px = player.x - cameraX;
+            let py = player.y; 
+
+            if (gameState === 'winning_scene') {
+                // STICKMAN ON LAND
+                let cycle = player.legAngle; 
+                let playerBob = Math.abs(Math.sin(cycle * 2)) * 4;
+                py = player.y - playerBob; 
+
+                let hipX = px + 15;
+                let hipY = py + 38;
+                let shoulderX = px + 17; 
+                let shoulderY = py + 20;
+
+                let lThighRot = Math.sin(cycle) * 0.8;
+                let lCalfRot = -Math.max(0, Math.cos(cycle)) * 1.8; 
+                let rThighRot = Math.sin(cycle + Math.PI) * 0.8;
+                let rCalfRot = -Math.max(0, Math.cos(cycle + Math.PI)) * 1.8; 
+
+                let lArmRot = Math.sin(cycle + Math.PI) * 0.8;
+                let lElbowRot = 1.2 + Math.sin(cycle + Math.PI)*0.3; 
+                let rArmRot = Math.sin(cycle) * 0.8;
+                let rElbowRot = 1.2 + Math.sin(cycle)*0.3;
+
+                drawLimb(shoulderX, shoulderY, 10, lArmRot, 10, lElbowRot, 3.5, true);
+                drawLimb(hipX, hipY, 12, lThighRot, 12, lCalfRot, 4, true);
+
+                ctx.fillStyle = "#000";
+                ctx.beginPath();
+                ctx.moveTo(shoulderX - 5, shoulderY);
+                ctx.lineTo(shoulderX + 5, shoulderY);
+                ctx.lineTo(hipX + 5, hipY);
+                ctx.lineTo(hipX - 3, hipY);
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(shoulderX + 2, py + 8, 9, 0, Math.PI*2);
+                ctx.fill();
+                
+                drawLimb(hipX, hipY, 12, rThighRot, 12, rCalfRot, 4.5);
+                drawLimb(shoulderX, shoulderY, 10, rArmRot, 10, rElbowRot, 4);
+                
+            } else {
+                // SWIMMER
+                ctx.save();
+                ctx.translate(px, py);
+                ctx.rotate(player.angle);
+
+                if (player.glowTimer > 0) {
+                    ctx.shadowColor = "#00ffff";
+                    ctx.shadowBlur = 20;
+                }
+
+                ctx.fillStyle = "#ffcc99"; 
+                ctx.beginPath(); ctx.ellipse(0, 0, 25, 8, 0, 0, Math.PI*2); ctx.fill();
+                
+                ctx.fillStyle = "#222";
+                ctx.beginPath(); ctx.ellipse(-5, 0, 12, 8.5, 0, 0, Math.PI*2); ctx.fill();
+
+                ctx.fillStyle = "#ffcc99";
+                ctx.beginPath(); ctx.arc(25, -2, 8, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = "#00aaff"; 
+                ctx.beginPath(); ctx.fillRect(26, -5, 6, 6);
+                ctx.strokeStyle = "#333"; ctx.lineWidth=2; 
+                ctx.beginPath(); ctx.moveTo(18, -2); ctx.lineTo(26, -2); ctx.stroke();
+
+                ctx.strokeStyle = "#ddd"; ctx.lineWidth=2.5;
+                ctx.beginPath(); ctx.moveTo(25, 2); ctx.quadraticCurveTo(20, 5, 18, -10); ctx.lineTo(18, -18); ctx.stroke();
+
+                let armRot = Math.sin(timeWave * 5) * 0.5;
+                ctx.strokeStyle = "#ffcc99"; ctx.lineWidth = 4; ctx.lineCap = "round";
+                ctx.beginPath(); ctx.moveTo(10, 2); ctx.lineTo(10 - 15*Math.cos(armRot), 2 + 15*Math.sin(armRot)); ctx.stroke();
+
+                let legRot = Math.sin(timeWave * 8) * 0.4;
+                ctx.strokeStyle = "#ffcc99"; ctx.lineWidth = 4;
+                ctx.beginPath(); ctx.moveTo(-15, 2); ctx.lineTo(-15 - 15, 2 + 10*legRot); ctx.stroke();
+                ctx.fillStyle = "#00aaff";
+                ctx.beginPath(); ctx.moveTo(-30, 2 + 10*legRot); ctx.lineTo(-45, 6 + 15*legRot); ctx.lineTo(-45, -2 + 5*legRot); ctx.fill();
+                
+                ctx.strokeStyle = "#ddaa77";
+                ctx.beginPath(); ctx.moveTo(-15, -2); ctx.lineTo(-15 - 15, -2 - 10*legRot); ctx.stroke();
+                ctx.fillStyle = "#0088cc";
+                ctx.beginPath(); ctx.moveTo(-30, -2 - 10*legRot); ctx.lineTo(-45, -6 - 15*legRot); ctx.lineTo(-45, 2 - 5*legRot); ctx.fill();
+
+                if (Math.random() < 0.1 && player.y > SURFACE_Y + 10) {
+                    environment.bubbles.push({ x: player.x + 18, y: player.y - 20, size: 2+Math.random()*3, speed: 1+Math.random(), phase: 0 });
+                }
+
+                ctx.shadowBlur = 0; 
+                ctx.restore();
+            }
+        }
+
+        // 12. Draw The Shark
+        let cx = chaser.x - cameraX;
+        if (cx > -chaser.width && chaser.x < LEVEL_LENGTH - 200) {
+            let cy = chaser.y;
+            let tailWag = Math.sin(timeWave * (chaser.speed)) * 15;
+
+            ctx.save();
+            ctx.translate(cx, cy);
+
+            if (chaser.glowTimer > 0) {
+                ctx.shadowColor = "#ff0000";
+                ctx.shadowBlur = 30;
+            }
+
+            let sharkGrad = ctx.createLinearGradient(0, -30, 0, 30);
+            sharkGrad.addColorStop(0, "#4a5a6a"); 
+            sharkGrad.addColorStop(0.7, "#7a8a9a"); 
+            sharkGrad.addColorStop(1, "#dddddd"); 
+            
+            ctx.fillStyle = sharkGrad;
+
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 90, 35, 0, 0, Math.PI*2);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(40, -15);
+            ctx.quadraticCurveTo(110, -5, 110, 10);
+            ctx.quadraticCurveTo(80, 25, 40, 20);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(-60, -10);
+            ctx.quadraticCurveTo(-110 + tailWag*0.5, 0, -120 + tailWag, 0);
+            ctx.quadraticCurveTo(-110 + tailWag*0.5, 10, -60, 15);
+            ctx.fill();
+
+            ctx.fillStyle = "#4a5a6a";
+            ctx.beginPath();
+            ctx.moveTo(-10, -33);
+            ctx.quadraticCurveTo(-15, -75, -35, -80);
+            ctx.quadraticCurveTo(-25, -45, -40, -25);
+            ctx.fill();
+
+            ctx.fillStyle = "#5a6a7a";
+            ctx.beginPath();
+            ctx.moveTo(10, 25);
+            ctx.quadraticCurveTo(0, 60, -20, 70);
+            ctx.quadraticCurveTo(-5, 40, -15, 30);
+            ctx.fill();
+
+            ctx.fillStyle = "#4a5a6a";
+            ctx.beginPath();
+            ctx.moveTo(-115 + tailWag, 0);
+            ctx.quadraticCurveTo(-130 + tailWag*1.5, -45, -150 + tailWag*2, -50); 
+            ctx.quadraticCurveTo(-135 + tailWag*1.5, -10, -125 + tailWag, 0);
+            ctx.quadraticCurveTo(-135 + tailWag*1.5, 20, -145 + tailWag*2, 35); 
+            ctx.quadraticCurveTo(-125 + tailWag*1.5, 25, -115 + tailWag, 0);
+            ctx.fill();
+
+            ctx.strokeStyle = "#222"; ctx.lineWidth = 2;
+            for(let i=0; i<3; i++) {
+                ctx.beginPath(); ctx.moveTo(35 + i*8, -5); ctx.quadraticCurveTo(40 + i*8, 5, 35 + i*8, 15); ctx.stroke();
+            }
+
+            ctx.fillStyle = "#000";
+            ctx.beginPath(); ctx.arc(75, -5, 4, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = chaser.glowTimer > 0 ? "#ff0000" : "#ffcc00"; 
+            ctx.beginPath(); ctx.arc(75, -5, 1.5, 0, Math.PI*2); ctx.fill();
+
+            let jawOpen = Math.min(20, Math.max(0, 20 - (player.x - chaser.x)/20));
+            ctx.fillStyle = "#ff6666"; 
+            ctx.beginPath();
+            ctx.moveTo(65, 15);
+            ctx.lineTo(100, 10);
+            ctx.lineTo(80, 15 + jawOpen);
+            ctx.fill();
+            
+            ctx.fillStyle = "#fff";
+            for(let i=0; i<4; i++) { 
+                ctx.beginPath(); ctx.moveTo(70 + i*8, 12); ctx.lineTo(74 + i*8, 17); ctx.lineTo(78 + i*8, 11); ctx.fill();
+            }
+            for(let i=0; i<3; i++) { 
+                ctx.beginPath(); ctx.moveTo(70 + i*8, 15 + jawOpen); ctx.lineTo(74 + i*8, 10 + jawOpen); ctx.lineTo(78 + i*8, 16 + jawOpen); ctx.fill();
+            }
+
+            ctx.shadowBlur = 0; 
+            ctx.restore();
+        }
+
+        // --- OCTOPUS INK BLINDNESS EFFECT ---
+        if (player.inkTimer > 0) {
+            let px = player.x - cameraX;
+            let py = player.y;
+
+            let opacity = Math.min(1, player.inkTimer / 60); 
+            ctx.globalAlpha = opacity;
+
+            let scale = 1;
+            if (player.inkTimer > 280) {
+                scale = (300 - player.inkTimer) / 20; 
+            }
+
+            let baseSize = 110 * scale; 
+
+            ctx.fillStyle = "rgba(10, 5, 15, 0.98)";
+            ctx.beginPath();
+            ctx.arc(px, py, baseSize * 0.7, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = "rgba(25, 10, 30, 0.9)";
+            for (let i = 0; i < 12; i++) {
+                let sx = px + Math.cos(timeWave * 4 + i) * (baseSize * 0.6) * Math.sin(timeWave * 2);
+                let sy = py + Math.sin(timeWave * 3 - i) * (baseSize * 0.6) * Math.cos(timeWave * 1.5);
+                ctx.beginPath();
+                ctx.arc(sx, sy, (40 + Math.sin(timeWave*3+i)*25) * scale, 0, Math.PI*2);
+                ctx.fill();
+            }
+
+            let edgeGrad = ctx.createRadialGradient(px, py, baseSize * 0.5, px, py, baseSize * 1.5);
+            edgeGrad.addColorStop(0, "rgba(10, 5, 15, 0.9)");
+            edgeGrad.addColorStop(1, "rgba(10, 5, 15, 0)");
+            ctx.fillStyle = edgeGrad;
+            ctx.beginPath();
+            ctx.arc(px, py, baseSize * 1.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.globalAlpha = 1.0; 
+        }
+    }
+
+    function gameLoop(timestamp) {
+        frameTimeMs = timestamp;
+        if (!lastTime) lastTime = timestamp;
+        const deltaTime = timestamp - lastTime;
+        lastTime = timestamp;
+
+        if (gameState === 'playing' || gameState === 'winning_scene') {
+            update();
+        }
+        render(); 
+
+        if (gameState === 'playing' || gameState === 'tutorial' || gameState === 'winning_scene') {
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+    }
+
+    function startGame(event) {
+        if (event) event.stopPropagation(); 
+        if (!isLevel2Unlocked()) {
+            syncLevel2Access();
+            alert("Level 2 locked hai. Pehle Level 1 complete karo.");
+            return;
+        }
+        if (document.activeElement) document.activeElement.blur();
+        primeBackgroundMusic();
+        primeSfx();
+        startBackgroundMusic(true);
+
+        gameState = 'playing';
+        startScreen.classList.add('hidden');
+        gameOverScreen.classList.add('hidden');
+        winScreen.classList.add('hidden');
+        tutorialPopup.classList.add('hidden');
+        damageOverlay.style.opacity = 0;
+        
+        initEntities();
+        
+        lastTime = 0;
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = requestAnimationFrame(gameLoop);
+    }
+
+    function endGame(result, reason) {
+        gameState = result;
+        cancelAnimationFrame(animationFrameId);
+        stopBackgroundMusic();
+        
+        if (result === 'lose') {
+            document.getElementById('finalScore1').innerText = score;
+            deathReason.innerText = reason;
+            gameOverScreen.classList.remove('hidden');
+            playSfx('gameOver');
+        } else if (result === 'win') {
+            score += 5000;
+            navigateHome();
+        }
+    }
+
+    function resetGame(event) {
+        startGame(event);
+    }
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+</script>
+</body>
+</html>
