@@ -706,6 +706,7 @@
     const CHASER_SPEED_UP_LERP = 0.05;
     const CHASER_SPEED_DOWN_LERP = 0.08;
     const LEVEL1_COMPLETE_KEY = 'missiongame_level1_completed_v1';
+    const LEVEL2_COMPLETE_KEY = 'missiongame_level2_completed_v1';
     const BGM_CONFIG = {
         path: 'assets/background.mp3',
         volume: 0.3
@@ -2187,6 +2188,7 @@
             gameOverScreen.classList.remove('hidden');
             playSfx('gameOver');
         } else if (result === 'win') {
+            localStorage.setItem(LEVEL2_COMPLETE_KEY, 'true');
             score += 5000;
             navigateHome();
         }

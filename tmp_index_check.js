@@ -2,7 +2,8 @@
         const routes = {
             home: 'home.html',
             level1: 'level1.html',
-            level2: 'level2.html'
+            level2: 'level2.html',
+            level3: 'level3.html'
         };
 
         const frame = document.getElementById('gameFrame');

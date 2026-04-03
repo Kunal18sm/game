@@ -91,6 +91,7 @@
     const noticeTitle = document.getElementById('noticeTitle');
     const noticeText = document.getElementById('noticeText');
     const noticeOkBtn = document.getElementById('noticeOkBtn');
+    chaserWarning.style.display = 'none';
 
     // --- GAME STATE VARIABLES ---
     let cw, ch;
@@ -186,6 +187,7 @@
     const CHASER_SPEED_UP_LERP = 0.05;
     const CHASER_SPEED_DOWN_LERP = 0.08;
     const LEVEL1_COMPLETE_KEY = 'missiongame_level1_completed_v1';
+    const LEVEL2_COMPLETE_KEY = 'missiongame_level2_completed_v1';
     const BGM_CONFIG = {
         path: 'assets/background.mp3',
         volume: 0.3
@@ -841,13 +843,7 @@
             }
         }
 
-        let distanceToChaser = player.x - chaser.x;
-        if (distanceToChaser < cw && distanceToChaser > 0) {
-            chaserWarning.style.opacity = 1 - (distanceToChaser / cw);
-            chaserWarning.innerText = "SHARK NEAR!";
-        } else {
-            chaserWarning.style.opacity = 0;
-        }
+        chaserWarning.style.opacity = 0;
 
         if (chaser.x + chaser.width*0.8 > player.x && Math.abs(chaser.y - player.y) < 60) {
             endGame('lose', "The Shark's jaws crushed you!");
@@ -1673,6 +1669,7 @@
             gameOverScreen.classList.remove('hidden');
             playSfx('gameOver');
         } else if (result === 'win') {
+            localStorage.setItem(LEVEL2_COMPLETE_KEY, 'true');
             score += 5000;
             navigateHome();
         }

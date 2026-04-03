@@ -84,9 +84,12 @@
 
         // --- LEVEL NODES (Exact placement on path) ---
         const LEVEL1_COMPLETE_KEY = 'missiongame_level1_completed_v1';
+        const LEVEL2_COMPLETE_KEY = 'missiongame_level2_completed_v1';
         const PLAYER_NAME_KEY = 'missiongame_player_name_v1';
         const totalLevels = 12;
-        const unlockedLevels = localStorage.getItem(LEVEL1_COMPLETE_KEY) === 'true' ? 2 : 1;
+        const level1Done = localStorage.getItem(LEVEL1_COMPLETE_KEY) === 'true';
+        const level2Done = localStorage.getItem(LEVEL2_COMPLETE_KEY) === 'true';
+        const unlockedLevels = level2Done ? 3 : (level1Done ? 2 : 1);
         const currentLevel = unlockedLevels;
         const levelNodes = [];
         const uiLayer = document.getElementById('ui-layer');
@@ -379,6 +382,15 @@
                     navigateTo('level2');
                 } else {
                     showInfoModal('Level 2 is locked. Complete Level 1 first.', 'Level Locked');
+                }
+                return;
+            }
+
+            if (tappedLevel === 3) {
+                if (unlockedLevels >= 3) {
+                    navigateTo('level3');
+                } else {
+                    showInfoModal('Level 3 is locked. Complete Level 2 first.', 'Level Locked');
                 }
                 return;
             }

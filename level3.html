@@ -1,0 +1,1063 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Journey to the Shadow Palace</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Creepster&family=Roboto:wght@400;700&display=swap');
+
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background-color: #000; overflow: hidden;
+            font-family: 'Roboto', sans-serif; touch-action: none;
+        }
+
+        #gameCanvas { display: block; width: 100%; height: 100%; image-rendering: auto; }
+
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+
+        /* Life Counter */
+        .hud-container { position: absolute; top: 20px; left: 20px; display: flex; gap: 15px; flex-wrap: wrap; max-width: 50%; }
+        .life-icon {
+            position: relative; width: 16px; height: 16px; background-color: #ff3333;
+            transform: rotate(-45deg); margin-top: 8px; margin-left: 8px;
+            filter: drop-shadow(0 0 5px rgba(255, 0, 0, 0.8));
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .life-icon::before, .life-icon::after {
+            content: ''; position: absolute; width: 16px; height: 16px;
+            background-color: #ff3333; border-radius: 50%;
+        }
+        .life-icon::before { top: -8px; left: 0; }
+        .life-icon::after { top: 0; left: 8px; }
+        
+        .life-lost { opacity: 0.1; transform: scale(0.5) rotate(0deg); filter: grayscale(100%); }
+
+        /* Ammo Counter */
+        #ammoContainer {
+            position: absolute; top: 65px; left: 25px;
+            color: #00ccff; font-size: 24px; font-weight: bold;
+            text-shadow: 0 0 10px #00ccff; font-family: 'Roboto', sans-serif;
+            transition: opacity 0.3s;
+        }
+
+        /* Progress Bar */
+        .progress-container {
+            position: absolute; top: 25px; right: 20px; width: 250px; height: 10px;
+            background: rgba(0,0,0,0.6); border: 1px solid #444; border-radius: 10px; overflow: hidden;
+        }
+        .progress-bar { height: 100%; width: 0%; background: linear-gradient(90deg, #555, #eee); }
+
+        /* Messages */
+        #game-message {
+            position: absolute; top: 20%; left: 50%; transform: translateX(-50%);
+            color: #fff; background: rgba(0,0,0,0.8); padding: 15px 25px;
+            border: 1px solid #00ccff; border-radius: 12px; font-size: 18px;
+            text-align: center; opacity: 0; transition: opacity 0.4s;
+            max-width: 80%; box-shadow: 0 0 20px rgba(0, 204, 255, 0.2);
+        }
+
+        /* Controls */
+        .controls {
+            position: absolute; bottom: 40px; width: 100%;
+            display: flex; justify-content: space-between; padding: 0 30px; box-sizing: border-box; pointer-events: none;
+        }
+        .btn {
+            width: 70px; height: 70px; background-color: rgba(255, 255, 255, 0.08);
+            border: 2px solid rgba(255, 255, 255, 0.2); border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            pointer-events: auto; user-select: none; transition: background 0.2s, transform 0.1s;
+        }
+        .btn:active { background-color: rgba(255, 255, 255, 0.3); transform: scale(0.9); }
+        #btnFreeze { background-color: rgba(0, 150, 255, 0.2); border-color: rgba(0, 150, 255, 0.6); display: none; }
+        .btn svg { width: 35px; height: 35px; fill: white; }
+
+        .screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.9); display: flex; flex-direction: column;
+            justify-content: center; align-items: center; color: white; text-align: center; z-index: 100;
+        }
+        .hidden { display: none !important; }
+        .title { font-family: 'Creepster', cursive; font-size: 65px; margin-bottom: 10px; text-shadow: 0 0 15px rgba(255,255,255,0.4); }
+        .subtitle { font-size: 18px; color: #999; margin-bottom: 40px; max-width: 600px; line-height: 1.5; }
+        .start-btn {
+            background: #fff; color: #000; border: none; padding: 15px 50px;
+            font-size: 20px; font-weight: bold; border-radius: 40px; cursor: pointer; transition: transform 0.2s;
+        }
+        .start-btn:hover { transform: scale(1.1); }
+
+        .pause-btn {
+            position: absolute; top: 16px; right: 16px;
+            width: 52px; height: 52px; border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.55);
+            background: rgba(0, 0, 0, 0.7); color: #fff;
+            font-size: 22px; font-weight: 900;
+            display: none; align-items: center; justify-content: center;
+            pointer-events: auto; cursor: pointer; z-index: 120;
+        }
+
+        .pause-menu-card {
+            background: rgba(0, 0, 0, 0.94);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            border-radius: 14px; padding: 20px;
+            min-width: min(360px, 88vw);
+            box-shadow: 0 16px 35px rgba(0, 0, 0, 0.45);
+        }
+        .pause-title { margin: 0 0 14px; font-size: 28px; color: #fff; font-weight: 800; }
+        .pause-actions { display: flex; flex-direction: column; gap: 10px; }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui-layer">
+        <div id="game-message">Dialogue Box</div>
+        <div class="hud-container" id="lifeContainer">
+            <!-- Hearts will be dynamically injected here -->
+        </div>
+        <div id="ammoContainer" class="hidden">❄ 5/5</div>
+        <div class="progress-container"><div class="progress-bar" id="progressBar"></div></div>
+        <button class="pause-btn" id="pauseBtn" type="button" aria-label="Pause">II</button>
+        <div class="controls">
+            <div style="display: flex; gap: 20px; pointer-events: none;">
+                <div class="btn" id="btnLeft" style="pointer-events: auto;"><svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg></div>
+                <div class="btn" id="btnRight" style="pointer-events: auto;"><svg viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg></div>
+            </div>
+            <div style="display: flex; gap: 20px; pointer-events: none;">
+                <div class="btn" id="btnFreeze" style="pointer-events: auto;"><svg viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg></div>
+                <div class="btn" id="btnJump" style="pointer-events: auto;"><svg viewBox="0 0 24 24"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="startScreen" class="screen">
+        <div class="title">SHADOW MISSION</div>
+        <div class="subtitle">A 30 km journey. Meet the old man at 5,000m, unlock your power, and reach the Shadow Palace at the end.</div>
+        <button class="start-btn" id="startBtn" onclick="initGame()">START JOURNEY</button>
+        <div id="levelLockNote" style="margin-top:10px;color:#ff8888;font-weight:bold;display:none;">Level 3 is locked. Complete Level 2 first.</div>
+    </div>
+
+    <div id="gameOverScreen" class="screen hidden">
+        <div class="title" id="gameOverTitle" style="color: #ff4444;">MISSION FAILED</div>
+        <div class="subtitle" id="gameOverSubtitle">You were defeated.</div>
+        <button class="start-btn" onclick="resetGame()">TRY AGAIN</button>
+    </div>
+
+    <div id="pauseMenu" class="screen hidden">
+        <div class="pause-menu-card">
+            <h2 class="pause-title">Game Paused</h2>
+            <div class="pause-actions">
+                <button class="start-btn" id="continueBtn" type="button">CONTINUE</button>
+                <button class="start-btn" id="homeBtn" type="button">HOME</button>
+                <button class="start-btn" id="restartBtn" type="button">RESTART</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const progressBar = document.getElementById('progressBar');
+    const lifeContainer = document.getElementById('lifeContainer');
+    const ammoContainer = document.getElementById('ammoContainer');
+    const gameMessage = document.getElementById('game-message');
+    const startScreen = document.getElementById('startScreen');
+    const btnFreeze = document.getElementById('btnFreeze');
+    const gameOverScreen = document.getElementById('gameOverScreen');
+    const gameOverTitle = document.getElementById('gameOverTitle');
+    const gameOverSubtitle = document.getElementById('gameOverSubtitle');
+    const startBtn = document.getElementById('startBtn');
+    const levelLockNote = document.getElementById('levelLockNote');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const pauseMenu = document.getElementById('pauseMenu');
+    const continueBtn = document.getElementById('continueBtn');
+    const homeBtn = document.getElementById('homeBtn');
+    const restartBtn = document.getElementById('restartBtn');
+
+    let cw, ch, groundY;
+    let cameraX = 0;
+    let gameState = 'start';
+    let lastTime = 0;
+    let animationFrameId = null;
+    let gameStateBeforePause = 'playing';
+
+    const LEVEL_LENGTH = 30000; 
+    const WALK_SPEED = 4.5; 
+    const GRAVITY = 0.45;
+    const JUMP_FORCE = -11.5;
+    const BOSS_ATTACK_RECOVERY_FRAMES = 120; // ~2s at 60 FPS
+    const LEVEL2_COMPLETE_KEY = 'missiongame_level2_completed_v1';
+    const LEVEL3_COMPLETE_KEY = 'missiongame_level3_completed_v1';
+    const BGM_CONFIG = { path: 'assets/background.mp3', volume: 0.28 };
+    const SFX_CONFIG = {
+        damage: { path: 'assets/damaged.mp3', volume: 0.9, cooldownMs: 120 },
+        jump: { path: 'assets/jump.mp3', volume: 0.75, cooldownMs: 100 },
+        power: { path: 'assets/boostcollect.mp3', volume: 0.85, cooldownMs: 120 },
+        gameOver: { path: 'assets/gameover.mp3', volume: 0.9, cooldownMs: 250 }
+    };
+    let bgmAudio = null;
+    let bgmPrimed = false;
+    const sfxBank = {};
+    const sfxLastPlayed = {};
+
+    function initBackgroundMusic() {
+        bgmAudio = new Audio(BGM_CONFIG.path);
+        bgmAudio.loop = true;
+        bgmAudio.preload = 'auto';
+        bgmAudio.volume = BGM_CONFIG.volume;
+    }
+    function primeBackgroundMusic() {
+        if (!bgmAudio || bgmPrimed) return;
+        bgmPrimed = true;
+        bgmAudio.load();
+    }
+    function startBackgroundMusic(resetTrack = false) {
+        if (!bgmAudio) return;
+        if (resetTrack) bgmAudio.currentTime = 0;
+        bgmAudio.play().catch(() => {});
+    }
+    function stopBackgroundMusic() {
+        if (!bgmAudio) return;
+        bgmAudio.pause();
+    }
+    function initSfx() {
+        for (const [key, config] of Object.entries(SFX_CONFIG)) {
+            const audio = new Audio(config.path);
+            audio.preload = 'auto';
+            sfxBank[key] = audio;
+        }
+    }
+    function playSfx(key) {
+        const config = SFX_CONFIG[key];
+        const baseAudio = sfxBank[key];
+        if (!config || !baseAudio) return;
+        const now = performance.now();
+        const last = sfxLastPlayed[key] || 0;
+        if (now - last < config.cooldownMs) return;
+        sfxLastPlayed[key] = now;
+        const clip = baseAudio.cloneNode();
+        clip.volume = config.volume;
+        clip.play().catch(() => {});
+    }
+
+    function isLevel3Unlocked() {
+        return localStorage.getItem(LEVEL2_COMPLETE_KEY) === 'true';
+    }
+
+    function syncLevel3Access() {
+        const unlocked = isLevel3Unlocked();
+        startBtn.disabled = !unlocked;
+        startBtn.style.opacity = unlocked ? '1' : '0.5';
+        levelLockNote.style.display = unlocked ? 'none' : 'block';
+    }
+
+    function navigateHome() {
+        if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'missiongame:navigate', page: 'home' }, '*');
+            return;
+        }
+        window.location.href = 'index.html';
+    }
+
+    function requestFullscreenAndLandscape() {
+        if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'missiongame:request-fullscreen' }, '*');
+            return;
+        }
+
+        const elem = document.documentElement;
+        if (elem.requestFullscreen) {
+            elem.requestFullscreen().catch(() => {});
+        }
+        if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock('landscape').catch(() => {});
+        }
+    }
+
+    function syncPauseButtonVisibility() {
+        const show = gameState === 'playing' || gameState === 'paused';
+        pauseBtn.style.display = show ? 'flex' : 'none';
+    }
+
+    function setPaused(isPaused) {
+        if (isPaused) {
+            if (gameState !== 'playing') return;
+            gameStateBeforePause = gameState;
+            gameState = 'paused';
+            keys.left = false; keys.right = false; keys.up = false;
+            cancelAnimationFrame(animationFrameId);
+            pauseMenu.classList.remove('hidden');
+            stopBackgroundMusic();
+            syncPauseButtonVisibility();
+            return;
+        }
+
+        pauseMenu.classList.add('hidden');
+        gameState = gameStateBeforePause || 'playing';
+        lastTime = 0;
+        startBackgroundMusic(false);
+        animationFrameId = requestAnimationFrame(gameLoop);
+        syncPauseButtonVisibility();
+    }
+
+    let player = {
+        x: 300, y: 0, width: 30, height: 60, vx: 0, vy: 0,
+        grounded: false, legAngle: 0, lives: 5, maxLives: 5, invulnTimer: 0,
+        powerUnlocked: false, facingLeft: false,
+        ammo: 5, reloadTimer: 0
+    };
+
+    let levelData = {
+        mushrooms: [],
+        animals: [], 
+        extraLives: [],
+        gates: [{ x: 10000, locked: true }, { x: 20000, locked: true }],
+        npc: { x: 5080, met: false },
+        house: { x: 5000 },
+        boss: { 
+            x: 19800, yOffset: 250, hp: 10, maxHp: 10, state: 'hidden', 
+            timer: 0, vx: 0, vy: 0, speed: 5.5, facingLeft: true, 
+            legAngle: 0, grounded: true, jumpForce: -13
+        },
+        fireBalls: [], 
+        freezeBalls: [], 
+        blasts: [],
+        treesFar: [], treesMid: [], treesNear: [], grass: []
+    };
+
+    function generateLevel() {
+        levelData.mushrooms = []; levelData.treesFar = []; levelData.treesMid = []; levelData.treesNear = []; levelData.grass = [];
+        
+        levelData.extraLives = [
+            {x: 3000, alive: true, bob: 0},
+            {x: 6000, alive: true, bob: 0},
+            {x: 9000, alive: true, bob: 0}
+        ];
+
+        for(let i=1500; i<LEVEL_LENGTH; i += 1300 + Math.random()*700) {
+            if(Math.abs(i - 5000) > 600 && Math.abs(i - 10000) > 200 && (i < 19000 || i > 20500)) {
+                levelData.mushrooms.push({x: i, alive: true, shootTimer: 0});
+            }
+        }
+        for(let i=500; i<LEVEL_LENGTH; i+=1500) levelData.treesFar.push({x: i, h: 320, w: 25, type: i%3});
+        for(let i=800; i<LEVEL_LENGTH; i+=1200) levelData.treesMid.push({x: i, h: 420, w: 35, type: i%3});
+        for(let i=1200; i<LEVEL_LENGTH; i+=2000) levelData.treesNear.push({x: i, h: 580, w: 55, type: i%3});
+        for(let i=0; i<LEVEL_LENGTH; i+=50) levelData.grass.push({x: i, h: Math.random() * 15});
+    }
+
+    const keys = { left: false, right: false, up: false };
+
+    function resize() {
+        cw = window.innerWidth; ch = window.innerHeight;
+        canvas.width = cw; canvas.height = ch;
+        groundY = ch - 110;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+    initBackgroundMusic();
+    initSfx();
+    syncLevel3Access();
+    syncPauseButtonVisibility();
+
+    window.addEventListener('keydown', e => {
+        if(e.code === 'ArrowLeft' || e.code === 'KeyA') { keys.left = true; player.facingLeft = true; }
+        if(e.code === 'ArrowRight' || e.code === 'KeyD') { keys.right = true; player.facingLeft = false; }
+        if(e.code === 'ArrowUp' || e.code === 'Space' || e.code === 'KeyW') keys.up = true;
+        if(e.code === 'KeyF') fireFreezeBall();
+        if(e.code === 'Escape') setPaused(gameState !== 'paused');
+    });
+    window.addEventListener('keyup', e => {
+        if(e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+        if(e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+        if(e.code === 'ArrowUp' || e.code === 'Space' || e.code === 'KeyW') keys.up = false;
+    });
+
+    const bindTouch = (id, k, fl) => {
+        let el = document.getElementById(id);
+        el.ontouchstart = (e) => { e.preventDefault(); keys[k] = true; if(fl !== undefined) player.facingLeft = fl; };
+        el.ontouchend = (e) => { e.preventDefault(); keys[k] = false; };
+    }
+    bindTouch('btnLeft', 'left', true); bindTouch('btnRight', 'right', false); bindTouch('btnJump', 'up');
+    btnFreeze.onclick = (e) => { e.preventDefault(); fireFreezeBall(); };
+
+    function updateAmmoUI() {
+        ammoContainer.innerText = `❄ ${player.ammo}/5`;
+    }
+
+    function fireFreezeBall() {
+        if(!player.powerUnlocked || player.ammo <= 0) return;
+        player.ammo--;
+        updateAmmoUI();
+        playSfx('power');
+        levelData.freezeBalls.push({
+            x: player.x + (player.facingLeft ? -10 : 30), y: player.y + 25,
+            vx: player.facingLeft ? -15 : 15 
+        });
+    }
+
+    function getSurfaceY(x) { return groundY - (Math.sin(x/400) * 20 + Math.sin(x/1000) * 40); }
+
+    function drawBranch(startX, startY, ctrlX, ctrlY, endX, endY, thickness, color) {
+        ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(startX - thickness/2, startY);
+        ctx.quadraticCurveTo(ctrlX, ctrlY, endX, endY); 
+        ctx.quadraticCurveTo(ctrlX + thickness, ctrlY + thickness/2, startX + thickness/2, startY); ctx.fill();
+    }
+
+    function drawDetailedTree(tree, parallax, color) {
+        let sx = tree.x - (cameraX * parallax);
+        if (sx + 200 < 0 || sx - 200 > cw) return;
+        let h = tree.h; let w = tree.w;
+        ctx.fillStyle = color; ctx.beginPath();
+        ctx.moveTo(sx - w/2, ch);
+        ctx.quadraticCurveTo(sx - w/4, groundY - h/2, sx, groundY - h); 
+        ctx.quadraticCurveTo(sx + w/4, groundY - h/2, sx + w/2, ch); ctx.fill();
+        if (tree.type === 0) {
+            drawBranch(sx, groundY-h*0.3, sx-w*0.8, groundY-h*0.4, sx-w*1.5, groundY-h*0.6, w*0.4, color);
+            drawBranch(sx, groundY-h*0.5, sx+w*0.8, groundY-h*0.6, sx+w*1.5, groundY-h*0.8, w*0.3, color);
+        } else if (tree.type === 1) {
+            drawBranch(sx, groundY-h*0.2, sx+w*1.0, groundY-h*0.3, sx+w*2.0, groundY-h*0.4, w*0.5, color);
+        } else {
+            drawBranch(sx, groundY-h*0.45, sx-w*0.6, groundY-h*0.5, sx-w*1.0, groundY-h*0.6, w*0.2, color);
+            drawBranch(sx, groundY-h*0.55, sx+w*0.6, groundY-h*0.6, sx+w*1.0, groundY-h*0.7, w*0.2, color);
+        }
+    }
+
+    function drawLimb(startX, startY, len1, rot1, len2, rot2, width, isDark = false) {
+        let kneeX = startX + Math.sin(rot1) * len1;
+        let kneeY = startY + Math.cos(rot1) * len1;
+        let footX = kneeX + Math.sin(rot1 + rot2) * len2;
+        let footY = kneeY + Math.cos(rot1 + rot2) * len2;
+        ctx.lineWidth = width; ctx.lineCap = "round"; ctx.lineJoin = "round";
+        ctx.strokeStyle = isDark ? "#222" : "#000"; 
+        ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(kneeX, kneeY); ctx.lineTo(footX, footY); ctx.stroke();
+    }
+
+    function drawGate(gate) {
+        let sx = gate.x - cameraX; 
+        if (sx + 200 < 0 || sx - 100 > cw) return;
+        let sy = getSurfaceY(gate.x);
+
+        ctx.fillStyle = "#000";
+        // Extended height so it never looks cut off on undulating ground
+        ctx.fillRect(sx - 40, sy - 300, 40, 360);
+        ctx.fillRect(sx + 100, sy - 300, 40, 360);
+
+        ctx.beginPath();
+        ctx.arc(sx + 50, sy - 300, 70, Math.PI, 0);
+        ctx.lineWidth = 40;
+        ctx.strokeStyle = "#000";
+        ctx.stroke();
+
+        if (gate.locked) {
+            ctx.fillStyle = "#ff3333"; ctx.font = "bold 24px Creepster"; 
+            ctx.textAlign = "center";
+            ctx.fillText("GUARDED", sx + 50, sy - 380);
+            ctx.textAlign = "left";
+
+            ctx.strokeStyle = "#111"; ctx.lineWidth = 8;
+            for(let i=0; i<5; i++) {
+                ctx.beginPath(); ctx.moveTo(sx + i*25, sy - 300); ctx.lineTo(sx + i*25, sy + 60); ctx.stroke();
+            }
+            for(let i=0; i<5; i++) {
+                ctx.beginPath(); ctx.moveTo(sx - 10, sy - 50 - i*60); ctx.lineTo(sx + 110, sy - 50 - i*60); ctx.stroke();
+            }
+
+            ctx.fillStyle = "red"; ctx.shadowColor = "red"; ctx.shadowBlur = 20;
+            ctx.beginPath(); ctx.arc(sx + 50, sy - 150, 15, 0, Math.PI*2); ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+    }
+
+    function drawNPC(x) {
+        let sx = x - cameraX; let sy = getSurfaceY(x);
+        ctx.save();
+        ctx.translate(sx, sy);
+        
+        drawLimb(0, -35, 12, 0.1, 10, 0.1, 3, true); 
+        ctx.fillStyle = "#000"; ctx.fillRect(-6, -45, 12, 25);
+        ctx.beginPath(); ctx.arc(0, -52, 8, 0, Math.PI*2); ctx.fill(); 
+        
+        ctx.fillStyle = "#fff";
+        ctx.beginPath(); ctx.arc(-3, -54, 1.5, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(2, -54, 1.5, 0, Math.PI*2); ctx.fill();
+        
+        ctx.fillStyle = "#ddd"; 
+        ctx.beginPath(); ctx.moveTo(-6, -48); ctx.lineTo(6, -48); ctx.lineTo(0, -35); ctx.fill();
+        
+        drawLimb(0, -35, 12, -0.1, 10, -0.1, 3.5); 
+        drawLimb(0, -42, 10, -0.3, 10, -0.5, 3);
+        ctx.strokeStyle = "#444"; ctx.lineWidth = 3; 
+        ctx.beginPath(); ctx.moveTo(-12, -25); ctx.lineTo(-18, 0); ctx.stroke(); 
+        
+        ctx.restore();
+    }
+
+    function drawBoss() {
+        let b = levelData.boss;
+        if(b.state === 'hidden') return;
+        
+        let sx = b.x - cameraX;
+        let sy = getSurfaceY(b.x) + b.yOffset; 
+        if(sx < -300 || sx > cw + 300) return;
+
+        ctx.save();
+        ctx.translate(sx, sy);
+
+        if(b.state !== 'emerging' && b.state !== 'dead') {
+            ctx.fillStyle = "red";
+            ctx.font = "bold 16px Roboto";
+            ctx.textAlign = "center";
+            ctx.shadowColor = "red"; ctx.shadowBlur = 5;
+            ctx.fillText(`BOSS HP: ${b.hp}/${b.maxHp}`, 0, -115);
+            ctx.shadowBlur = 0;
+            
+            ctx.fillStyle = "#222"; ctx.fillRect(-40, -105, 80, 8);
+            ctx.fillStyle = "red"; ctx.fillRect(-40, -105, 80 * (b.hp/b.maxHp), 8);
+        }
+
+        ctx.scale(1.4, 1.4);
+        if(!b.facingLeft) ctx.scale(-1, 1);
+
+        let cycle = b.grounded ? b.legAngle : Math.PI/4; 
+        let bob = b.grounded ? Math.abs(Math.sin(cycle * 2)) * 4 : 0;
+        let drawY = -30 - bob; 
+
+        let lThigh = Math.sin(cycle + Math.PI)*0.8;
+        let lCalf = -Math.max(0, Math.cos(cycle + Math.PI))*1.8;
+        let rThigh = Math.sin(cycle)*0.8;
+        let rCalf = -Math.max(0, Math.cos(cycle))*1.8;
+        
+        let armAngle = Math.sin(cycle + Math.PI)*0.8;
+        if (b.state === 'prep_slash') armAngle = -2.0; 
+        else if (b.state === 'slashing') armAngle = 1.5; 
+
+        drawLimb(2, drawY - 10, 10, armAngle, 10, 1.2, 3.5, true); 
+        drawLimb(0, drawY + 8, 12, rThigh, 12, rCalf, 4, true); 
+        
+        ctx.fillStyle = "#000";
+        ctx.beginPath(); ctx.moveTo(-5, drawY - 10); ctx.lineTo(5, drawY - 10);
+        ctx.lineTo(5, drawY + 8); ctx.lineTo(-3, drawY + 8); ctx.fill();
+
+        ctx.beginPath(); ctx.arc(2, drawY - 22, 9, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "red"; ctx.shadowColor = "red"; ctx.shadowBlur = 10;
+        ctx.beginPath(); ctx.arc(6, drawY - 22, 2.5, 0, Math.PI*2); ctx.fill(); 
+        ctx.shadowBlur = 0;
+
+        drawLimb(0, drawY + 8, 12, lThigh, 12, lCalf, 4.5); 
+        
+        ctx.save();
+        ctx.translate(2, drawY - 10);
+        ctx.rotate(armAngle);
+        ctx.strokeStyle = "#000"; ctx.lineWidth = 4; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 10); ctx.stroke(); 
+        ctx.strokeStyle = "#555"; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(0, 10); ctx.lineTo(0, 20); ctx.stroke(); 
+        ctx.strokeStyle = "#ff0000"; ctx.lineWidth = 4; ctx.shadowColor = "red"; ctx.shadowBlur = 10;
+        ctx.beginPath(); ctx.moveTo(0, 20); ctx.lineTo(0, 60); ctx.stroke(); 
+        ctx.shadowBlur = 0;
+        
+        if(b.state === 'slashing' && b.timer > 5) {
+            ctx.strokeStyle = "rgba(255, 0, 0, 0.6)"; ctx.lineWidth = 15;
+            ctx.beginPath(); ctx.arc(0, 0, 60, -Math.PI/2, Math.PI/2); ctx.stroke();
+        }
+        ctx.restore();
+        ctx.restore();
+    }
+
+    function drawMushroom(m) {
+        if(!m.alive) return;
+        let sx = m.x - cameraX; let sy = getSurfaceY(m.x);
+        if(sx + 50 < 0 || sx > cw + 50) return;
+        
+        ctx.fillStyle = "#111"; ctx.fillRect(sx - 5, sy - 15, 10, 15);
+        ctx.fillStyle = "#000"; ctx.beginPath(); ctx.ellipse(sx, sy - 15, 20, 12, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#ff4444"; ctx.beginPath(); ctx.arc(sx - 7, sy - 17, 2, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(sx + 5, sy - 12, 3, 0, Math.PI*2); ctx.fill();
+    }
+
+    function drawHouse(x) {
+        let sx = x - cameraX * 0.8; if (sx + 400 < 0 || sx - 400 > cw) return;
+        let sy = getSurfaceY(x);
+        ctx.fillStyle = "#000";
+        ctx.fillRect(sx - 150, sy - 180, 300, 180);
+        ctx.beginPath(); ctx.moveTo(sx - 180, sy - 180); ctx.lineTo(sx, sy - 300); ctx.lineTo(sx + 180, sy - 180); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = "rgba(255, 0, 0, 0.15)";
+        ctx.fillRect(sx - 100, sy - 120, 40, 50); ctx.fillRect(sx + 60, sy - 120, 40, 50);
+    }
+
+    function drawPalace(x) {
+        let sx = x - cameraX; 
+        if (sx + 800 < 0 || sx - 800 > cw) return;
+        let sy = getSurfaceY(x);
+
+        ctx.fillStyle = "#000";
+        ctx.strokeStyle = "#111";
+        ctx.lineWidth = 5;
+
+        // Base foundation extended
+        ctx.fillRect(sx - 350, sy - 100, 700, 200); 
+
+        // Center Big Tower
+        ctx.fillRect(sx - 150, sy - 600, 300, 650);
+        ctx.strokeRect(sx - 150, sy - 600, 300, 650);
+        ctx.beginPath(); ctx.moveTo(sx - 180, sy - 600); ctx.lineTo(sx, sy - 800); ctx.lineTo(sx + 180, sy - 600); ctx.fill(); ctx.stroke();
+
+        // Left Tower
+        ctx.fillRect(sx - 300, sy - 450, 150, 500);
+        ctx.strokeRect(sx - 300, sy - 450, 150, 500);
+        ctx.beginPath(); ctx.moveTo(sx - 330, sy - 450); ctx.lineTo(sx - 225, sy - 600); ctx.lineTo(sx - 120, sy - 450); ctx.fill(); ctx.stroke();
+
+        // Right Tower
+        ctx.fillRect(sx + 150, sy - 450, 150, 500);
+        ctx.strokeRect(sx + 150, sy - 450, 150, 500);
+        ctx.beginPath(); ctx.moveTo(sx + 120, sy - 450); ctx.lineTo(sx + 225, sy - 600); ctx.lineTo(sx + 330, sy - 450); ctx.fill(); ctx.stroke();
+
+        ctx.fillStyle = "rgba(255, 0, 0, 0.2)"; 
+        
+        ctx.fillRect(sx - 60, sy - 200, 120, 100);
+        ctx.beginPath(); ctx.arc(sx, sy - 200, 60, Math.PI, 0); ctx.fill();
+        ctx.strokeStyle = "#0a0a0a"; ctx.lineWidth = 8;
+        for(let i=0; i<5; i++){
+            ctx.beginPath(); ctx.moveTo(sx - 45 + i*22.5, sy - 200); ctx.lineTo(sx - 45 + i*22.5, sy - 100); ctx.stroke();
+        }
+
+        ctx.fillRect(sx - 40, sy - 450, 80, 120);
+        ctx.beginPath(); ctx.arc(sx, sy - 450, 40, Math.PI, 0); ctx.fill();
+        
+        ctx.fillRect(sx - 250, sy - 300, 50, 100);
+        ctx.beginPath(); ctx.arc(sx - 225, sy - 300, 25, Math.PI, 0); ctx.fill();
+
+        ctx.fillRect(sx + 200, sy - 300, 50, 100);
+        ctx.beginPath(); ctx.arc(sx + 225, sy - 300, 25, Math.PI, 0); ctx.fill();
+    }
+
+    function initGame() {
+        if (!isLevel3Unlocked()) {
+            syncLevel3Access();
+            showMessage("Level 3 is locked. Complete Level 2 first.");
+            return;
+        }
+        startScreen.classList.add('hidden');
+        gameOverScreen.classList.add('hidden');
+        pauseMenu.classList.add('hidden');
+        player.x = 300; player.lives = 5; player.maxLives = 5; player.powerUnlocked = false; 
+        player.ammo = 5; player.reloadTimer = 0; cameraX = 0;
+        generateLevel();
+        levelData.fireBalls = []; levelData.freezeBalls = []; levelData.animals = [];
+        levelData.boss.state = 'hidden'; levelData.boss.hp = 10; levelData.boss.yOffset = 250; levelData.boss.x = 19800;
+        gameState = 'playing'; updateLifeUI(); updateAmmoUI();
+        startBackgroundMusic(true);
+        syncPauseButtonVisibility();
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = requestAnimationFrame(gameLoop);
+    }
+
+    function resetGame() {
+        initGame();
+    }
+
+    function updateLifeUI() {
+        lifeContainer.innerHTML = '';
+        for(let i=0; i<player.maxLives; i++) {
+            let heart = document.createElement('div');
+            heart.className = 'life-icon';
+            if(i >= player.lives) heart.classList.add('life-lost');
+            lifeContainer.appendChild(heart);
+        }
+    }
+
+    function showMessage(txt) {
+        gameMessage.innerText = txt; gameMessage.style.opacity = 1;
+        setTimeout(() => gameMessage.style.opacity = 0, 4000);
+    }
+
+    function updateBoss() {
+        let b = levelData.boss;
+        if(b.state === 'hidden') {
+            if(player.x > 19200 && player.x < b.x + 500) {
+                b.state = 'emerging';
+                showMessage("BOSS: The Guardian of the Jungle has arrived!");
+            }
+        } 
+        else if (b.state === 'emerging') {
+            b.yOffset -= 2; 
+            if(b.yOffset <= 0) { b.yOffset = 0; b.state = 'idle'; b.timer = 60; }
+        } 
+        else if (b.state !== 'dead') {
+            b.vy += GRAVITY;
+            b.yOffset += b.vy;
+            if(b.yOffset > 0) {
+                b.yOffset = 0;
+                b.vy = 0;
+                b.grounded = true;
+            }
+
+            if(b.grounded && (b.state === 'idle' || b.state === 'moving')) {
+                for(let f of levelData.freezeBalls) {
+                    let dist = f.x - b.x;
+                    if(Math.abs(dist) < 180 && ((dist > 0 && f.vx < 0) || (dist < 0 && f.vx > 0))) {
+                        b.vy = b.jumpForce;
+                        b.grounded = false;
+                        break;
+                    }
+                }
+            }
+
+            if (b.state === 'idle' || b.state === 'moving') {
+                b.timer--;
+                if(b.timer <= 0) {
+                    let dist = player.x - b.x;
+                    b.facingLeft = dist < 0;
+                    
+                    if (Math.abs(dist) > 110) { 
+                        b.state = 'moving';
+                        b.vx = b.facingLeft ? -b.speed : b.speed;
+                        b.x += b.vx;
+                        b.legAngle += 0.20; // Smooth leg movement
+                        b.timer = 0; 
+                    } else {
+                        b.state = 'prep_slash';
+                        b.vx = 0;
+                        b.timer = 25; 
+                    }
+                }
+            } 
+            else if (b.state === 'prep_slash') {
+                b.timer--;
+                if(b.timer <= 0) {
+                    b.state = 'slashing';
+                    b.timer = 15; 
+                }
+            } 
+            else if (b.state === 'slashing') {
+                b.timer--;
+                if(b.timer > 5) {
+                    b.x += b.facingLeft ? -1 : 1; // Small lunge forward
+                }
+                if(b.timer === 8) { 
+                    let dist = Math.abs(player.x - b.x);
+                    if(dist < 130 && player.invulnTimer === 0 && player.y > getSurfaceY(player.x) - 100) {
+                        player.lives--; player.invulnTimer = 60; updateLifeUI();
+                        playSfx('damage');
+                    }
+                }
+                if(b.timer <= 0) {
+                    b.state = 'idle'; b.timer = BOSS_ATTACK_RECOVERY_FRAMES;
+                }
+            }
+        } 
+        else if (b.state === 'dead') {
+            b.yOffset += 4; 
+        }
+    }
+
+    function update() {
+        if(gameState !== 'playing') return;
+
+        let moveSpeed = WALK_SPEED;
+        if(keys.left) { player.vx = -moveSpeed; player.legAngle += 0.18; }
+        else if(keys.right) { player.vx = moveSpeed; player.legAngle += 0.18; }
+        else { player.vx *= 0.8; player.legAngle = 0; }
+        
+        if(keys.up && player.grounded) { player.vy = JUMP_FORCE; player.grounded = false; playSfx('jump'); }
+
+        player.vy += GRAVITY; player.x += player.vx; player.y += player.vy;
+        let gy = getSurfaceY(player.x + 15);
+        if(player.y + player.height > gy) { player.y = gy - player.height; player.vy = 0; player.grounded = true; }
+
+        let targetCam = player.x - cw * 0.4;
+        cameraX += (targetCam - cameraX) * 0.1;
+        if(cameraX < 0) cameraX = 0;
+        if(player.x < 15) player.x = 15;
+
+        if (player.x > LEVEL_LENGTH - 200) {
+            gameState = 'over';
+            stopBackgroundMusic();
+            localStorage.setItem(LEVEL3_COMPLETE_KEY, 'true');
+            gameOverTitle.innerText = "MISSION COMPLETE";
+            gameOverTitle.style.color = "#4caf50";
+            gameOverSubtitle.innerText = "You reached the Shadow Palace. Mission complete.";
+            gameOverScreen.classList.remove('hidden');
+            syncPauseButtonVisibility();
+            setTimeout(() => navigateHome(), 900);
+            return;
+        }
+
+        levelData.extraLives.forEach(el => {
+            if(!el.alive) return;
+            el.bob += 0.1; 
+            let ex = el.x; let ey = getSurfaceY(el.x) - 40 + Math.sin(el.bob)*10;
+            let dx = Math.abs(player.x + player.width/2 - ex);
+            let dy = Math.abs(player.y + player.height/2 - ey);
+            if(dx < 30 && dy < 40) {
+                el.alive = false; player.maxLives++; player.lives++; updateLifeUI();
+                playSfx('power');
+                showMessage("Extra life collected!");
+            }
+        });
+
+        updateBoss();
+        let isBossAlive = levelData.boss.hp > 0;
+
+        if(player.powerUnlocked && player.ammo < 5) {
+            player.reloadTimer++;
+            if(player.reloadTimer >= 60) {
+                player.ammo++; player.reloadTimer = 0; updateAmmoUI();
+            }
+        }
+
+        if (!isBossAlive) {
+            if(Math.random() < 0.004) {
+                let side = Math.random() > 0.5 ? 1 : -1;
+                levelData.animals.push({ x: cameraX + (side > 0 ? cw + 100 : -100), vx: side > 0 ? -4 : 4, frozen: 0 });
+            }
+        } else {
+            if (levelData.animals.length > 0) levelData.animals = [];
+        }
+
+        for(let i=levelData.animals.length-1; i>=0; i--) {
+            let a = levelData.animals[i]; 
+            if(a.frozen > 0) {
+                a.frozen--;
+            } else {
+                a.x += a.vx;
+                if(Math.abs(a.x - player.x) < 35 && player.grounded && player.invulnTimer === 0) {
+                    player.lives--; player.invulnTimer = 60; updateLifeUI();
+                    playSfx('damage');
+                }
+            }
+            if(a.x < cameraX - 300 || a.x > cameraX + cw + 300) levelData.animals.splice(i, 1);
+        }
+
+        if(!levelData.npc.met && Math.abs(player.x - levelData.npc.x) < 70) {
+            levelData.npc.met = true; player.powerUnlocked = true; 
+            btnFreeze.style.display = 'flex'; ammoContainer.classList.remove('hidden');
+            playSfx('power');
+            showMessage("Old Man: Take these freeze balls. Stop poisonous mushrooms and wild animals.");
+        }
+
+        levelData.mushrooms.forEach(m => {
+            if(!m.alive) return;
+            let dist = m.x - player.x;
+            if(Math.abs(dist) < 800) {
+                m.shootTimer++;
+                if(m.shootTimer > 120) {
+                    let dir = dist > 0 ? -1 : 1;
+                    levelData.fireBalls.push({ x: m.x, y: getSurfaceY(m.x)-25, vx: dir * 7, vy: 0 });
+                    m.shootTimer = 0;
+                }
+            }
+            if(player.invulnTimer === 0 && Math.abs(player.x - m.x) < 30 && player.y + player.height > getSurfaceY(m.x)-15) {
+                player.lives--; player.invulnTimer = 60; updateLifeUI();
+                playSfx('damage');
+            }
+        });
+
+        for(let i=levelData.fireBalls.length-1; i>=0; i--) {
+            let b = levelData.fireBalls[i]; b.x += b.vx;
+            if(Math.abs(b.x - (player.x+15)) < 25 && Math.abs(b.y - (player.y+30)) < 35) {
+                if(player.invulnTimer === 0) { player.lives--; player.invulnTimer = 60; updateLifeUI(); playSfx('damage'); }
+                levelData.fireBalls.splice(i, 1);
+            } else if (b.x < cameraX - 100 || b.x > cameraX + cw + 100) {
+                levelData.fireBalls.splice(i, 1);
+            }
+        }
+
+        for(let i=levelData.freezeBalls.length-1; i>=0; i--) {
+            let f = levelData.freezeBalls[i]; 
+            f.x += f.vx; 
+
+            let hit = false;
+            let b = levelData.boss;
+
+            if(b.state !== 'hidden' && b.state !== 'dead' && Math.abs(f.x - b.x) < 40 && Math.abs(f.y - (getSurfaceY(b.x) + b.yOffset - 50)) < 60) {
+                b.hp--;
+                levelData.blasts.push({x: f.x, y: f.y, r: 35, a: 1});
+                hit = true;
+                if(b.hp <= 0) { b.state = 'dead'; showMessage("BOSS DEFEATED! Gate is opening..."); }
+            }
+
+            if(!hit) {
+                levelData.mushrooms.forEach(m => {
+                    if(m.alive && Math.abs(f.x - m.x) < 40 && Math.abs(f.y - getSurfaceY(m.x)) < 50) {
+                        m.alive = false; 
+                        levelData.blasts.push({x: m.x, y: getSurfaceY(m.x)-15, r: 15, a: 1});
+                        hit = true;
+                        
+                        // 30% chance to drop extra life
+                        if(Math.random() <= 0.3) {
+                            levelData.extraLives.push({x: m.x, alive: true, bob: 0});
+                        }
+                    }
+                });
+            }
+
+            if(!hit) {
+                levelData.animals.forEach(a => {
+                    if(a.frozen <= 0 && Math.abs(f.x - a.x) < 40 && Math.abs(f.y - getSurfaceY(a.x)) < 40) {
+                        a.frozen = 300; 
+                        levelData.blasts.push({x: a.x, y: getSurfaceY(a.x)-10, r: 20, a: 1});
+                        hit = true;
+                    }
+                });
+            }
+
+            if(hit || f.x < cameraX || f.x > cameraX + cw) levelData.freezeBalls.splice(i, 1);
+        }
+
+        for(let i=levelData.blasts.length-1; i>=0; i--) {
+            let b = levelData.blasts[i]; b.r += 4; b.a -= 0.04;
+            if(b.a <= 0) levelData.blasts.splice(i, 1);
+        }
+
+        let gateMsg = "";
+        for(let g of levelData.gates) {
+            if(g.x === 10000) {
+                let count = levelData.mushrooms.filter(m => m.x < g.x && m.alive).length;
+                g.locked = count > 0;
+                if(g.locked && player.x + player.width > g.x - 40 && player.x < g.x + 100) {
+                    player.x = g.x - 40 - player.width; player.vx = 0;
+                    gateMsg = `GATE LOCKED: Blast ${count} more Mushrooms!`;
+                }
+            } else if (g.x === 20000) {
+                g.locked = levelData.boss.hp > 0; 
+                if(g.locked && player.x + player.width > g.x - 40 && player.x < g.x + 100) {
+                    player.x = g.x - 40 - player.width; player.vx = 0;
+                    gateMsg = `GATE LOCKED: Defeat the Shadow Boss!`;
+                }
+            }
+        }
+        if(gateMsg) { gameMessage.innerText = gateMsg; gameMessage.style.opacity = 1; }
+        else if(gameMessage.innerText.startsWith("GATE")) gameMessage.style.opacity = 0;
+
+        if(player.invulnTimer > 0) player.invulnTimer--;
+        if(player.lives <= 0) { 
+            gameState = 'over'; 
+            stopBackgroundMusic();
+            playSfx('gameOver');
+            gameOverTitle.innerText = "MISSION FAILED";
+            gameOverTitle.style.color = "#ff4444";
+            gameOverSubtitle.innerText = "You were defeated.";
+            document.getElementById('gameOverScreen').classList.remove('hidden'); 
+            syncPauseButtonVisibility();
+        }
+        progressBar.style.width = (player.x / LEVEL_LENGTH * 100) + "%";
+    }
+
+    function drawPlayer() {
+        let px = player.x - cameraX; let py = player.y;
+        if(player.invulnTimer > 0 && Math.floor(player.invulnTimer/5)%2===0) return;
+        
+        ctx.save();
+        ctx.translate(px + 15, py + 30);
+        if(player.facingLeft) ctx.scale(-1, 1);
+        ctx.translate(-15, -30);
+
+        let cycle = player.grounded ? player.legAngle : Math.PI/4; 
+        let bob = player.grounded ? Math.abs(Math.sin(cycle * 2)) * 4 : 0;
+        let drawY = 0 - bob;
+
+        let hipX = 15; let hipY = drawY + 38;
+        let shoulderX = 17; let shoulderY = drawY + 20;
+
+        drawLimb(shoulderX, shoulderY, 10, Math.sin(cycle + Math.PI)*0.8, 10, 1.2, 3.5, true);
+        drawLimb(hipX, hipY, 12, Math.sin(cycle)*0.8, 12, -Math.max(0, Math.cos(cycle))*1.8, 4, true);
+        
+        ctx.fillStyle = "#000";
+        ctx.beginPath(); ctx.moveTo(shoulderX-5, shoulderY); ctx.lineTo(shoulderX+5, shoulderY);
+        ctx.lineTo(hipX+5, hipY); ctx.lineTo(hipX-3, hipY); ctx.fill();
+
+        ctx.beginPath(); ctx.arc(shoulderX+2, drawY+8, 9, 0, Math.PI*2); ctx.fill();
+        ctx.fillRect(shoulderX+2, drawY, 14, 4); 
+        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(shoulderX+6, drawY+6, 2, 0, Math.PI*2); ctx.fill();
+
+        drawLimb(hipX, hipY, 12, Math.sin(cycle+Math.PI)*0.8, 12, -Math.max(0, Math.cos(cycle+Math.PI))*1.8, 4.5);
+        drawLimb(shoulderX, shoulderY, 10, Math.sin(cycle)*0.8, 10, 1.2, 4);
+        ctx.restore();
+    }
+
+    function render() {
+        let sky = ctx.createLinearGradient(0, 0, 0, ch);
+        sky.addColorStop(0, "#444"); sky.addColorStop(0.5, "#999"); sky.addColorStop(1, "#fff");
+        ctx.fillStyle = sky; ctx.fillRect(0,0,cw,ch);
+        
+        ctx.fillStyle = "rgba(255, 255, 255, 0.9)"; ctx.beginPath(); ctx.arc(cw * 0.8, ch * 0.25, ch * 0.12, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "rgba(255, 255, 255, 0.2)"; ctx.beginPath(); ctx.arc(cw * 0.8, ch * 0.25, ch * 0.15, 0, Math.PI * 2); ctx.fill();
+
+        levelData.treesFar.forEach(t => drawDetailedTree(t, 0.2, "#666"));
+        levelData.treesMid.forEach(t => drawDetailedTree(t, 0.5, "#333"));
+        drawHouse(levelData.house.x);
+        drawPalace(LEVEL_LENGTH); 
+        levelData.treesNear.forEach(t => drawDetailedTree(t, 0.8, "#1a1a1a"));
+
+        drawBoss();
+        drawNPC(levelData.npc.x);
+        levelData.mushrooms.forEach(drawMushroom);
+        
+        levelData.fireBalls.forEach(b => {
+            ctx.fillStyle = "#ff5722"; ctx.shadowBlur = 15; ctx.shadowColor = "red";
+            ctx.beginPath(); ctx.ellipse(b.x-cameraX, b.y, 10, 6, 0, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 0;
+        });
+        levelData.freezeBalls.forEach(f => {
+            ctx.fillStyle = "#00d2ff"; ctx.shadowBlur = 15; ctx.shadowColor = "#00d2ff";
+            ctx.beginPath(); ctx.ellipse(f.x-cameraX, f.y, 15, 8, 0, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 0;
+        });
+        levelData.blasts.forEach(b => {
+            ctx.beginPath(); ctx.arc(b.x-cameraX, b.y, b.r, 0, Math.PI*2);
+            ctx.strokeStyle = `rgba(0, 204, 255, ${b.a})`; ctx.lineWidth = 5; ctx.stroke();
+        });
+
+        levelData.gates.forEach(g => drawGate(g));
+
+        ctx.fillStyle = "#000"; ctx.beginPath(); ctx.moveTo(0, ch);
+        for(let x=0; x<=cw; x+=15) ctx.lineTo(x, getSurfaceY(x+cameraX));
+        ctx.lineTo(cw, ch); ctx.fill();
+
+        ctx.beginPath();
+        levelData.grass.forEach(g => {
+            let gx = g.x - cameraX;
+            if(gx > -20 && gx < cw) {
+                let gy = getSurfaceY(g.x);
+                ctx.moveTo(gx, gy + 10); ctx.lineTo(gx + 10, gy - g.h); ctx.lineTo(gx + 20, gy + 10);
+            }
+        });
+        ctx.fill();
+
+        levelData.extraLives.forEach(el => {
+            if(!el.alive) return;
+            let ex = el.x - cameraX; let ey = getSurfaceY(el.x) - 40 + Math.sin(el.bob)*10;
+            if(ex < -50 || ex > cw+50) return;
+            ctx.save();
+            ctx.translate(ex, ey);
+            ctx.rotate(-Math.PI/4);
+            ctx.fillStyle = "#ff3333";
+            ctx.shadowColor = "red"; ctx.shadowBlur = 15;
+            ctx.fillRect(-8, -8, 16, 16);
+            ctx.beginPath(); ctx.arc(-8, 0, 8, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(0, -8, 8, 0, Math.PI*2); ctx.fill();
+            ctx.restore();
+        });
+
+        drawPlayer();
+    }
+
+    function gameLoop(t) {
+        update();
+        render();
+        if(gameState === 'playing') animationFrameId = requestAnimationFrame(gameLoop);
+    }
+
+    pauseBtn.addEventListener('click', (e) => { e.stopPropagation(); setPaused(true); });
+    continueBtn.addEventListener('click', () => setPaused(false));
+    homeBtn.addEventListener('click', () => navigateHome());
+    restartBtn.addEventListener('click', () => { pauseMenu.classList.add('hidden'); resetGame(); });
+    window.addEventListener('pointerdown', requestFullscreenAndLandscape, { passive: true });
+    window.addEventListener('touchstart', requestFullscreenAndLandscape, { passive: true });
+
+    resize(); generateLevel(); syncPauseButtonVisibility();
+</script>
+</body>
+</html>
+
