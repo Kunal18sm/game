@@ -324,6 +324,49 @@
             background: gold; color: black; border: none; padding: 8px; 
             font-weight: bold; cursor: pointer; border-radius: 5px; margin-top: 5px;
         }
+
+        .pause-btn {
+            position: absolute;
+            top: 18px;
+            right: 18px;
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 215, 0, 0.7);
+            background: rgba(20, 20, 20, 0.78);
+            color: #fff6c9;
+            font-size: 22px;
+            font-weight: 900;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            cursor: pointer;
+            z-index: 120;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.35);
+        }
+
+        .pause-menu-card {
+            background: rgba(0, 0, 0, 0.92);
+            border: 1px solid rgba(255, 215, 0, 0.45);
+            border-radius: 14px;
+            padding: 20px;
+            min-width: min(360px, 88vw);
+            box-shadow: 0 18px 38px rgba(0, 0, 0, 0.5);
+        }
+
+        .pause-title {
+            margin: 0 0 14px;
+            font-size: 28px;
+            font-weight: 800;
+            color: #ffe082;
+        }
+
+        .pause-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
     </style>
 </head>
 <body>
@@ -355,6 +398,8 @@
             <div id="tutText">Text</div>
             <button class="tut-btn" onclick="resumeTutorial()">Got it!</button>
         </div>
+
+        <button class="pause-btn" id="pauseBtn" type="button" aria-label="Pause">II</button>
 
         <div class="controls">
             <div class="control-group">
@@ -415,6 +460,17 @@
         <button class="play-btn" onclick="resetGame(event)">Play Again</button>
     </div>
 
+    <div id="pauseMenu" class="screen hidden">
+        <div class="pause-menu-card">
+            <h2 class="pause-title">Game Paused</h2>
+            <div class="pause-actions">
+                <button class="play-btn" id="continueBtn" type="button">Continue</button>
+                <button class="play-btn" id="homeBtn" type="button">Home</button>
+                <button class="play-btn" id="restartBtn" type="button">Restart</button>
+            </div>
+        </div>
+    </div>
+
 <script>
     // --- FULLSCREEN & LANDSCAPE LOCK LOGIC ---
     function makeFullscreen() {
@@ -454,6 +510,33 @@
         window.location.href = 'index.html';
     }
 
+    function syncPauseButtonVisibility() {
+        const show = gameState === 'playing' || gameState === 'tutorial' || gameState === 'winning_scene' || gameState === 'paused';
+        pauseBtn.style.display = show ? 'flex' : 'none';
+    }
+
+    function setPaused(isPaused) {
+        if (isPaused) {
+            if (gameState !== 'playing' && gameState !== 'tutorial' && gameState !== 'winning_scene') return;
+            gameStateBeforePause = gameState;
+            gameState = 'paused';
+            keys.left = false; keys.right = false; keys.up = false;
+            cancelAnimationFrame(animationFrameId);
+            pauseMenu.classList.remove('hidden');
+            stopBackgroundMusic();
+            syncPauseButtonVisibility();
+            return;
+        }
+
+        pauseMenu.classList.add('hidden');
+        gameState = gameStateBeforePause || 'playing';
+        lastTime = 0;
+        startBackgroundMusic(false);
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = requestAnimationFrame(gameLoop);
+        syncPauseButtonVisibility();
+    }
+
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const uiLayer = document.getElementById('ui-layer');
@@ -473,6 +556,11 @@
     const playButton = document.getElementById('playButton');
     const loadingFill = document.getElementById('loadingFill');
     const loadingStatus = document.getElementById('loadingStatus');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const pauseMenu = document.getElementById('pauseMenu');
+    const continueBtn = document.getElementById('continueBtn');
+    const homeBtn = document.getElementById('homeBtn');
+    const restartBtn = document.getElementById('restartBtn');
 
     // --- GAME STATE VARIABLES ---
     let cw, ch;
@@ -490,6 +578,7 @@
     let animationFrameId;
     let lastTime = 0;
     let isGameStarting = false;
+    let gameStateBeforePause = 'playing';
     
     // Tutorial persistence
     const TUTORIAL_STORAGE_KEY = 'missiongame_tutorial_state_v1';
@@ -943,6 +1032,7 @@
         lastTime = 0; 
         cancelAnimationFrame(animationFrameId);
         animationFrameId = requestAnimationFrame(gameLoop);
+        syncPauseButtonVisibility();
     }
 
     function AABB(r1, r2) {
@@ -2030,6 +2120,7 @@
         gameOverScreen.classList.add('hidden');
         winScreen.classList.add('hidden');
         tutorialPopup.classList.add('hidden');
+        pauseMenu.classList.add('hidden');
         loadingScreen.classList.remove('hidden');
         playButton.disabled = true;
         chaserWarning.style.opacity = 0;
@@ -2049,6 +2140,7 @@
             
             loadingScreen.classList.add('hidden');
             gameState = 'playing';
+            syncPauseButtonVisibility();
             lastTime = 0;
             animationFrameId = requestAnimationFrame(gameLoop);
         } catch (err) {
@@ -2057,6 +2149,7 @@
             startScreen.classList.remove('hidden');
             loadingScreen.classList.add('hidden');
             gameState = 'start';
+            syncPauseButtonVisibility();
             stopBackgroundMusic();
         } finally {
             playButton.disabled = false;
@@ -2079,11 +2172,25 @@
             score += 5000;
             navigateHome();
         }
+        syncPauseButtonVisibility();
     }
 
     function resetGame(event) {
         startGame(event);
     }
+
+    pauseBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setPaused(true);
+    });
+    continueBtn.addEventListener('click', () => setPaused(false));
+    homeBtn.addEventListener('click', () => navigateHome());
+    restartBtn.addEventListener('click', () => {
+        pauseMenu.classList.add('hidden');
+        resetGame();
+    });
+
+    syncPauseButtonVisibility();
 
     ctx.fillStyle = "#111";
     ctx.fillRect(0, 0, canvas.width, canvas.height);

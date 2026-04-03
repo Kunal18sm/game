@@ -84,11 +84,37 @@
 
         // --- LEVEL NODES (Exact placement on path) ---
         const LEVEL1_COMPLETE_KEY = 'missiongame_level1_completed_v1';
+        const PLAYER_NAME_KEY = 'missiongame_player_name_v1';
         const totalLevels = 12;
         const unlockedLevels = localStorage.getItem(LEVEL1_COMPLETE_KEY) === 'true' ? 2 : 1;
         const currentLevel = unlockedLevels;
         const levelNodes = [];
         const uiLayer = document.getElementById('ui-layer');
+        const profileBtn = document.getElementById('profileBtn');
+        const infoModal = document.getElementById('infoModal');
+        const infoModalTitle = document.getElementById('infoModalTitle');
+        const infoModalText = document.getElementById('infoModalText');
+        const infoOkBtn = document.getElementById('infoOkBtn');
+        const profileModal = document.getElementById('profileModal');
+        const profileNameInput = document.getElementById('profileNameInput');
+        const profileCancelBtn = document.getElementById('profileCancelBtn');
+        const profileSaveBtn = document.getElementById('profileSaveBtn');
+
+        function getPlayerName() {
+            const saved = localStorage.getItem(PLAYER_NAME_KEY);
+            if (saved && saved.trim()) return saved.trim();
+            return 'John Doe';
+        }
+
+        function showInfoModal(message, title = 'Notice') {
+            infoModalTitle.textContent = title;
+            infoModalText.textContent = message;
+            infoModal.classList.add('show');
+        }
+
+        function closeInfoModal() {
+            infoModal.classList.remove('show');
+        }
 
         const nodeGeo = new THREE.CylinderGeometry(2, 2, 1, 16);
         const openMat = new THREE.MeshStandardMaterial({ color: 0xf97316, emissive: 0x883300, emissiveIntensity: 0.5 }); // Orange
@@ -152,8 +178,41 @@
 
         const avatarLabel = document.createElement('div');
         avatarLabel.className = 'avatar-label';
-        avatarLabel.innerText = 'John Doe 💀';
+        avatarLabel.innerText = `${getPlayerName()} 💀`;
         uiLayer.appendChild(avatarLabel);
+
+        profileBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            profileNameInput.value = getPlayerName();
+            profileModal.classList.add('show');
+            setTimeout(() => profileNameInput.focus(), 0);
+        });
+
+        infoOkBtn.addEventListener('click', closeInfoModal);
+        infoModal.addEventListener('click', (e) => {
+            if (e.target === infoModal) closeInfoModal();
+        });
+
+        profileCancelBtn.addEventListener('click', () => {
+            profileModal.classList.remove('show');
+        });
+
+        profileSaveBtn.addEventListener('click', () => {
+            const cleaned = profileNameInput.value.trim();
+            if (!cleaned) {
+                showInfoModal('Name cannot be empty.', 'Profile');
+                return;
+            }
+            localStorage.setItem(PLAYER_NAME_KEY, cleaned);
+            avatarLabel.innerText = `${cleaned} 💀`;
+            profileModal.classList.remove('show');
+        });
+
+        profileModal.addEventListener('click', (e) => {
+            if (e.target === profileModal) {
+                profileModal.classList.remove('show');
+            }
+        });
 
         // --- ENVIRONMENT GENERATOR (No overlapping with path) ---
         const trees = new THREE.Group();
@@ -319,12 +378,12 @@
                 if (unlockedLevels >= 2) {
                     navigateTo('level2');
                 } else {
-                    alert('Level 2 abhi locked hai. Pehle Level 1 complete karo.');
+                    showInfoModal('Level 2 is locked. Complete Level 1 first.', 'Level Locked');
                 }
                 return;
             }
 
-            alert(`Level ${tappedLevel} abhi locked hai. Jaldi aa raha hai.`);
+            showInfoModal(`Level ${tappedLevel} is currently locked and coming soon.`, 'Level Locked');
         }
 
         function onDown(x, y) {

@@ -37,6 +37,33 @@
         window.location.href = 'index.html';
     }
 
+    function syncPauseButtonVisibility() {
+        const show = gameState === 'playing' || gameState === 'tutorial' || gameState === 'winning_scene' || gameState === 'paused';
+        pauseBtn.style.display = show ? 'flex' : 'none';
+    }
+
+    function setPaused(isPaused) {
+        if (isPaused) {
+            if (gameState !== 'playing' && gameState !== 'tutorial' && gameState !== 'winning_scene') return;
+            gameStateBeforePause = gameState;
+            gameState = 'paused';
+            keys.left = false; keys.right = false; keys.up = false;
+            cancelAnimationFrame(animationFrameId);
+            pauseMenu.classList.remove('hidden');
+            stopBackgroundMusic();
+            syncPauseButtonVisibility();
+            return;
+        }
+
+        pauseMenu.classList.add('hidden');
+        gameState = gameStateBeforePause || 'playing';
+        lastTime = 0;
+        startBackgroundMusic(false);
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = requestAnimationFrame(gameLoop);
+        syncPauseButtonVisibility();
+    }
+
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const uiLayer = document.getElementById('ui-layer');
@@ -56,6 +83,11 @@
     const playButton = document.getElementById('playButton');
     const loadingFill = document.getElementById('loadingFill');
     const loadingStatus = document.getElementById('loadingStatus');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const pauseMenu = document.getElementById('pauseMenu');
+    const continueBtn = document.getElementById('continueBtn');
+    const homeBtn = document.getElementById('homeBtn');
+    const restartBtn = document.getElementById('restartBtn');
 
     // --- GAME STATE VARIABLES ---
     let cw, ch;
@@ -73,6 +105,7 @@
     let animationFrameId;
     let lastTime = 0;
     let isGameStarting = false;
+    let gameStateBeforePause = 'playing';
     
     // Tutorial persistence
     const TUTORIAL_STORAGE_KEY = 'missiongame_tutorial_state_v1';
@@ -526,6 +559,7 @@
         lastTime = 0; 
         cancelAnimationFrame(animationFrameId);
         animationFrameId = requestAnimationFrame(gameLoop);
+        syncPauseButtonVisibility();
     }
 
     function AABB(r1, r2) {
@@ -1613,6 +1647,7 @@
         gameOverScreen.classList.add('hidden');
         winScreen.classList.add('hidden');
         tutorialPopup.classList.add('hidden');
+        pauseMenu.classList.add('hidden');
         loadingScreen.classList.remove('hidden');
         playButton.disabled = true;
         chaserWarning.style.opacity = 0;
@@ -1632,6 +1667,7 @@
             
             loadingScreen.classList.add('hidden');
             gameState = 'playing';
+            syncPauseButtonVisibility();
             lastTime = 0;
             animationFrameId = requestAnimationFrame(gameLoop);
         } catch (err) {
@@ -1640,6 +1676,7 @@
             startScreen.classList.remove('hidden');
             loadingScreen.classList.add('hidden');
             gameState = 'start';
+            syncPauseButtonVisibility();
             stopBackgroundMusic();
         } finally {
             playButton.disabled = false;
@@ -1662,11 +1699,25 @@
             score += 5000;
             navigateHome();
         }
+        syncPauseButtonVisibility();
     }
 
     function resetGame(event) {
         startGame(event);
     }
+
+    pauseBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setPaused(true);
+    });
+    continueBtn.addEventListener('click', () => setPaused(false));
+    homeBtn.addEventListener('click', () => navigateHome());
+    restartBtn.addEventListener('click', () => {
+        pauseMenu.classList.add('hidden');
+        resetGame();
+    });
+
+    syncPauseButtonVisibility();
 
     ctx.fillStyle = "#111";
     ctx.fillRect(0, 0, canvas.width, canvas.height);

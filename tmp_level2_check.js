@@ -28,6 +28,43 @@
         window.location.href = 'index.html';
     }
 
+    function syncPauseButtonVisibility() {
+        const visibleStates = gameState === 'playing' || gameState === 'tutorial' || gameState === 'winning_scene' || gameState === 'paused';
+        pauseBtn.style.display = visibleStates ? 'flex' : 'none';
+    }
+
+    function setPaused(isPaused) {
+        if (isPaused) {
+            if (gameState !== 'playing' && gameState !== 'tutorial' && gameState !== 'winning_scene') return;
+            gameStateBeforePause = gameState;
+            gameState = 'paused';
+            keys.left = false; keys.right = false; keys.up = false;
+            cancelAnimationFrame(animationFrameId);
+            pauseMenu.classList.remove('hidden');
+            stopBackgroundMusic();
+            syncPauseButtonVisibility();
+            return;
+        }
+
+        pauseMenu.classList.add('hidden');
+        gameState = gameStateBeforePause || 'playing';
+        lastTime = 0;
+        startBackgroundMusic(false);
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = requestAnimationFrame(gameLoop);
+        syncPauseButtonVisibility();
+    }
+
+    function showNotice(message, title = 'Notice') {
+        noticeTitle.textContent = title;
+        noticeText.textContent = message;
+        noticeOverlay.style.display = 'flex';
+    }
+
+    function hideNotice() {
+        noticeOverlay.style.display = 'none';
+    }
+
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const uiLayer = document.getElementById('ui-layer');
@@ -45,6 +82,15 @@
     const deathReason = document.getElementById('deathReason');
     const playButton = document.getElementById('playButton');
     const levelLockNote = document.getElementById('levelLockNote');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const pauseMenu = document.getElementById('pauseMenu');
+    const continueBtn = document.getElementById('continueBtn');
+    const homeBtn = document.getElementById('homeBtn');
+    const restartBtn = document.getElementById('restartBtn');
+    const noticeOverlay = document.getElementById('noticeOverlay');
+    const noticeTitle = document.getElementById('noticeTitle');
+    const noticeText = document.getElementById('noticeText');
+    const noticeOkBtn = document.getElementById('noticeOkBtn');
 
     // --- GAME STATE VARIABLES ---
     let cw, ch;
@@ -65,13 +111,52 @@
     let frameCount = 0;
     let frameTimeMs = performance.now();
     
-    let tutorials = { coinSeen: false, obstacleSeen: false, oxygenSeen: false };
+    const TUTORIAL_STORAGE_KEY = 'missiongame_level2_tutorial_state_v1';
+    let tutorials = loadTutorialState();
+    let gameStateBeforePause = 'playing';
     const keys = { left: false, right: false, up: false };
 
+    function createDefaultTutorialState() {
+        return { coinSeen: false, obstacleSeen: false, oxygenSeen: false };
+    }
+
+    function loadTutorialState() {
+        const defaults = createDefaultTutorialState();
+        try {
+            const raw = localStorage.getItem(TUTORIAL_STORAGE_KEY);
+            if (!raw) return defaults;
+            const parsed = JSON.parse(raw);
+            return {
+                coinSeen: !!parsed.coinSeen,
+                obstacleSeen: !!parsed.obstacleSeen,
+                oxygenSeen: !!parsed.oxygenSeen
+            };
+        } catch (_) {
+            return defaults;
+        }
+    }
+
+    function saveTutorialState() {
+        try {
+            localStorage.setItem(TUTORIAL_STORAGE_KEY, JSON.stringify(tutorials));
+        } catch (_) {
+            // Ignore storage failures.
+        }
+    }
+
+    function markTutorialSeen(key) {
+        if (!tutorials[key]) {
+            tutorials[key] = true;
+            saveTutorialState();
+        }
+    }
+
     // Mobile Zoom-Out Logic
+    let isMobilePerformance = window.innerWidth < 900;
     function resize() {
         let actualWidth = window.innerWidth;
         let actualHeight = window.innerHeight;
+        isMobilePerformance = actualWidth < 900;
 
         if (actualWidth < 900) {
             let targetWidth = 1200; 
@@ -198,6 +283,7 @@
     initBackgroundMusic();
     initSfx();
     syncLevel2Access();
+    syncPauseButtonVisibility();
 
     // --- TERRAIN LOGIC (Seabed) ---
     function getSeabedY(x) {
@@ -266,22 +352,26 @@
 
         score = 0;
         cameraX = 0;
-        tutorials = { coinSeen: false, obstacleSeen: false, oxygenSeen: false };
+        tutorials = loadTutorialState();
         updateHUD();
         generateLevel();
+        syncPauseButtonVisibility();
     }
 
     function generateLevel() {
         environment = { pearls: [], seaweeds: [], fishes: [], bubbles: [], crocs: [], octopuses: [], inkBalls: [], endTrees: [], treesFar: [], treesMid: [], treesNear: [] }; 
         
         let currentX = 2500; 
+        const entityStepMul = isMobilePerformance ? 1.2 : 1;
+        const octopusSpawnChance = isMobilePerformance ? 0.05 : 0.08;
+        const mobileSeaweedCap = 120;
 
         while (currentX < LEVEL_LENGTH - 500) {
             let surfaceDist = getSeabedY(currentX) - SURFACE_Y;
             let randomY = SURFACE_Y + 50 + Math.random() * (surfaceDist - 100);
             
             // Octopuses only after 40% of the game, independent spawn chance
-            if (currentX > LEVEL_LENGTH * 0.4 && Math.random() < 0.08) {
+            if (currentX > LEVEL_LENGTH * 0.4 && Math.random() < octopusSpawnChance) {
                 environment.octopuses.push({
                     x: currentX + Math.random() * 200,
                     hasInked: false 
@@ -300,7 +390,7 @@
                     direction: Math.random() > 0.5 ? 1 : -1,
                     phase: Math.random() * Math.PI * 2
                 });
-                currentX += 400 + Math.random() * 300; 
+                currentX += (400 + Math.random() * 300) * entityStepMul; 
             }
             else if (rand < 0.35) { // 20% Fishes
                 environment.fishes.push({
@@ -312,16 +402,19 @@
                     direction: Math.random() > 0.5 ? 1 : -1,
                     phase: Math.random() * Math.PI * 2
                 });
-                currentX += 300 + Math.random() * 300; 
+                currentX += (300 + Math.random() * 300) * entityStepMul; 
             }
             else if (rand < 0.55) { // 20% Seaweed
                 let sWidth = 40 + Math.random() * 30;
+                const randomSeaweed = 100 + Math.random() * 250;
+                const maxSafeSeaweed = Math.max(80, surfaceDist - (isMobilePerformance ? 190 : 120));
+                const targetSeaweed = isMobilePerformance ? Math.min(randomSeaweed, mobileSeaweedCap) : randomSeaweed;
                 environment.seaweeds.push({
                     x: currentX,
                     width: sWidth,
-                    height: 100 + Math.random() * 250 
+                    height: Math.max(65, Math.min(targetSeaweed, maxSafeSeaweed))
                 });
-                currentX += 200 + Math.random() * 200;
+                currentX += (220 + Math.random() * 220) * entityStepMul;
             } 
             else { // 45% Pearls (High frequency boosts)
                 environment.pearls.push({
@@ -329,12 +422,13 @@
                     y: SURFACE_Y + 30 + Math.random() * 60, 
                     size: 15
                 });
-                currentX += 150 + Math.random() * 150; 
+                currentX += (150 + Math.random() * 150) * entityStepMul; 
             }
         }
 
         // Create End Game Forest on the Island
-        for(let i = LEVEL_LENGTH - 300; i < LEVEL_LENGTH + 2000; i += 40 + Math.random()*50) {
+        const endTreeStepMul = isMobilePerformance ? 1.6 : 1;
+        for(let i = LEVEL_LENGTH - 300; i < LEVEL_LENGTH + 2000; i += (40 + Math.random()*50) * endTreeStepMul) {
             environment.endTrees.push({
                 x: i,
                 width: 50 + Math.random()*50,
@@ -344,18 +438,22 @@
         }
 
         // Generate background trees
-        for(let i=0; i<LEVEL_LENGTH; i+= 150 + Math.random()*100) {
+        const farTreeStepMul = isMobilePerformance ? 1.7 : 1;
+        const midTreeStepMul = isMobilePerformance ? 1.75 : 1;
+        const nearTreeStepMul = isMobilePerformance ? 1.8 : 1;
+        for(let i=0; i<LEVEL_LENGTH; i+= (150 + Math.random()*100) * farTreeStepMul) {
             environment.treesFar.push({ x: i, width: 20+Math.random()*20, height: ch*0.6+Math.random()*ch*0.3, type: Math.floor(Math.random()*3) });
         }
-        for(let i=0; i<LEVEL_LENGTH; i+= 200 + Math.random()*150) {
+        for(let i=0; i<LEVEL_LENGTH; i+= (200 + Math.random()*150) * midTreeStepMul) {
             environment.treesMid.push({ x: i, width: 30+Math.random()*30, height: ch*0.7+Math.random()*ch*0.3, type: Math.floor(Math.random()*3) });
         }
-        for(let i=0; i<LEVEL_LENGTH; i+= 300 + Math.random()*200) {
+        for(let i=0; i<LEVEL_LENGTH; i+= (300 + Math.random()*200) * nearTreeStepMul) {
             environment.treesNear.push({ x: i, width: 40+Math.random()*50, height: ch*0.9, type: Math.floor(Math.random()*3) });
         }
 
         // Bubbles
-        for(let i=0; i<300; i++) {
+        const bubbleCount = isMobilePerformance ? 160 : 300;
+        for(let i=0; i<bubbleCount; i++) {
             environment.bubbles.push({
                 x: Math.random() * LEVEL_LENGTH,
                 y: SURFACE_Y + Math.random() * (ch - SURFACE_Y),
@@ -446,6 +544,7 @@
         lastTime = 0; 
         cancelAnimationFrame(animationFrameId);
         animationFrameId = requestAnimationFrame(gameLoop);
+        syncPauseButtonVisibility();
     }
 
     function AABB(r1, r2) {
@@ -564,7 +663,7 @@
         updateHUD();
 
         if (oxygen <= 0) {
-            endGame('lose', "Aapki saans toot gayi! (You Drowned)");
+            endGame('lose', "You ran out of oxygen and drowned.");
             return;
         }
 
@@ -615,7 +714,7 @@
 
         // Tutorials
         if (!tutorials.oxygenSeen && frameCount > 100) {
-            tutorials.oxygenSeen = true;
+            markTutorialSeen('oxygenSeen');
             showTutorial("Breathe!", "Your blue oxygen bar is depleting! Swim UP to the surface line to take a breath every 30 seconds!", player.x + 200, SURFACE_Y, 'oxygen');
             return;
         }
@@ -623,7 +722,7 @@
         if (!tutorials.coinSeen && environment.pearls.length > 0) {
             let firstP = environment.pearls[0];
             if (firstP.x - cameraX > 50 && firstP.x - cameraX < cw * 0.6) {
-                tutorials.coinSeen = true;
+                markTutorialSeen('coinSeen');
                 showTutorial("Glowing Pearls!", "Collect pearls for a speed boost! If the Shark eats it, it gets much faster!", firstP.x, firstP.y, 'coin');
                 return;
             }
@@ -645,7 +744,7 @@
         player.vy += BUOYANCY; 
         player.vy *= WATER_DRAG;
         
-        let maxVx = (player.slowTimer > 0) ? player.speed * 0.5 : (player.boostTimer > 0 ? player.speed * 1.5 : player.speed);
+        let maxVx = (player.slowTimer > 0) ? player.speed * 0.5 : (player.boostTimer > 0 ? player.speed * 1.55 : player.speed);
         if (player.vx > maxVx) player.vx = maxVx;
 
         player.x += player.vx;
@@ -732,7 +831,9 @@
             croc.y = SURFACE_Y + 15 + Math.sin(frameCount*0.05 + croc.phase) * 4; 
         }
         
-        for (let b of environment.bubbles) {
+        const bubbleUpdateStep = isMobilePerformance ? 2 : 1;
+        for (let bi = 0; bi < environment.bubbles.length; bi += bubbleUpdateStep) {
+            let b = environment.bubbles[bi];
             b.y -= b.speed;
             b.x += Math.sin(frameCount*0.05 + b.phase) * 1;
             if (b.y < SURFACE_Y) {
@@ -1049,7 +1150,8 @@
 
         // 5. Caustics (Light Rays from surface)
         ctx.fillStyle = "rgba(0, 255, 255, 0.03)";
-        for(let i=0; i<10; i++) {
+        const causticRayCount = isMobilePerformance ? 6 : 10;
+        for(let i=0; i<causticRayCount; i++) {
             let rayX = (i * 200 - cameraX * 0.2 + timeWave*50) % (cw + 400) - 200;
             ctx.beginPath();
             ctx.moveTo(rayX, SURFACE_Y);
@@ -1086,7 +1188,9 @@
 
         // 7. Background Bubbles
         ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
-        for(let b of environment.bubbles) {
+        const bubbleDrawStep = isMobilePerformance ? 2 : 1;
+        for(let bi = 0; bi < environment.bubbles.length; bi += bubbleDrawStep) {
+            let b = environment.bubbles[bi];
             let bx = b.x - cameraX * 0.8; 
             if(bx > -20 && bx < cw + 20) {
                 ctx.beginPath();
@@ -1534,7 +1638,7 @@
         if (event) event.stopPropagation(); 
         if (!isLevel2Unlocked()) {
             syncLevel2Access();
-            alert("Level 2 locked hai. Pehle Level 1 complete karo.");
+            showNotice('Level 2 is locked. Complete Level 1 first.', 'Level Locked');
             return;
         }
         if (document.activeElement) document.activeElement.blur();
@@ -1547,9 +1651,11 @@
         gameOverScreen.classList.add('hidden');
         winScreen.classList.add('hidden');
         tutorialPopup.classList.add('hidden');
+        pauseMenu.classList.add('hidden');
         damageOverlay.style.opacity = 0;
         
         initEntities();
+        syncPauseButtonVisibility();
         
         lastTime = 0;
         cancelAnimationFrame(animationFrameId);
@@ -1570,11 +1676,27 @@
             score += 5000;
             navigateHome();
         }
+        syncPauseButtonVisibility();
     }
 
     function resetGame(event) {
         startGame(event);
     }
+
+    pauseBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setPaused(true);
+    });
+    continueBtn.addEventListener('click', () => setPaused(false));
+    homeBtn.addEventListener('click', () => navigateHome());
+    restartBtn.addEventListener('click', () => {
+        pauseMenu.classList.add('hidden');
+        resetGame();
+    });
+    noticeOkBtn.addEventListener('click', hideNotice);
+    noticeOverlay.addEventListener('click', (e) => {
+        if (e.target === noticeOverlay) hideNotice();
+    });
 
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
