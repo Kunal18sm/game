@@ -610,6 +610,7 @@
     const noticeTitle = document.getElementById('noticeTitle');
     const noticeText = document.getElementById('noticeText');
     const noticeOkBtn = document.getElementById('noticeOkBtn');
+    chaserWarning.style.display = 'none';
 
     // --- GAME STATE VARIABLES ---
     let cw, ch;
@@ -1360,13 +1361,7 @@
             }
         }
 
-        let distanceToChaser = player.x - chaser.x;
-        if (distanceToChaser < cw && distanceToChaser > 0) {
-            chaserWarning.style.opacity = 1 - (distanceToChaser / cw);
-            chaserWarning.innerText = "SHARK NEAR!";
-        } else {
-            chaserWarning.style.opacity = 0;
-        }
+        chaserWarning.style.opacity = 0;
 
         if (chaser.x + chaser.width*0.8 > player.x && Math.abs(chaser.y - player.y) < 60) {
             endGame('lose', "The Shark's jaws crushed you!");
