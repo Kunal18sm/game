@@ -374,13 +374,42 @@
         if(e.code === 'ArrowUp' || e.code === 'Space' || e.code === 'KeyW') keys.up = false;
     });
 
-    const bindTouch = (id, k, fl) => {
+    const bindHoldButton = (id, k, fl) => {
         let el = document.getElementById(id);
-        el.ontouchstart = (e) => { e.preventDefault(); keys[k] = true; if(fl !== undefined) player.facingLeft = fl; };
-        el.ontouchend = (e) => { e.preventDefault(); keys[k] = false; };
-    }
-    bindTouch('btnLeft', 'left', true); bindTouch('btnRight', 'right', false); bindTouch('btnJump', 'up');
-    btnFreeze.onclick = (e) => { e.preventDefault(); fireFreezeBall(); };
+        const press = (e) => {
+            e.preventDefault();
+            keys[k] = true;
+            if(fl !== undefined) player.facingLeft = fl;
+        };
+        const release = (e) => {
+            e.preventDefault();
+            keys[k] = false;
+        };
+        el.addEventListener('pointerdown', press);
+        el.addEventListener('pointerup', release);
+        el.addEventListener('pointercancel', release);
+        el.addEventListener('touchstart', press, { passive: false });
+        el.addEventListener('touchend', release, { passive: false });
+        el.addEventListener('touchcancel', release, { passive: false });
+    };
+    bindHoldButton('btnLeft', 'left', true);
+    bindHoldButton('btnRight', 'right', false);
+    bindHoldButton('btnJump', 'up');
+
+    const bindActionButton = (el, action) => {
+        let lastTriggerAt = 0;
+        const trigger = (e) => {
+            e.preventDefault();
+            const now = Date.now();
+            if(now - lastTriggerAt < 90) return; // prevent duplicate touch+pointer trigger
+            lastTriggerAt = now;
+            action();
+        };
+        el.addEventListener('pointerdown', trigger);
+        el.addEventListener('touchstart', trigger, { passive: false });
+        el.addEventListener('click', trigger);
+    };
+    bindActionButton(btnFreeze, fireFreezeBall);
 
     function updateAmmoUI() {
         ammoContainer.innerText = `❄ ${player.ammo}/5`;
